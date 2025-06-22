@@ -273,24 +273,6 @@
         min-width: unset;
       }
     }
-
-    /* Thanh cuộn ngang */
-    .horizontal-scroll {
-      display: flex;
-      overflow-x: auto;
-      gap: 12px;
-      padding-bottom: 8px;
-      scrollbar-color: #e573c8 #ffe0f8;
-      scrollbar-width: thin;
-    }
-    .horizontal-scroll::-webkit-scrollbar {
-      height: 8px;
-      background: #ffe0f8;
-    }
-    .horizontal-scroll::-webkit-scrollbar-thumb {
-      background: #e573c8;
-      border-radius: 8px;
-    }
   </style>
 </head>
 <body>
@@ -306,14 +288,6 @@
     <div class="buttons">
       <button class="btn" id="yesBtn">Thích lắm lun</button>
       <button class="btn" id="noBtn">Hong</button>
-    </div>
-    <!-- Thanh cuộn ngang ví dụ -->
-    <div class="horizontal-scroll" style="margin:24px 0;">
-      <div style="min-width:120px;height:80px;background:#ffb6d5;border-radius:12px;display:flex;align-items:center;justify-content:center;">Item 1</div>
-      <div style="min-width:120px;height:80px;background:#b36bff;border-radius:12px;display:flex;align-items:center;justify-content:center;">Item 2</div>
-      <div style="min-width:120px;height:80px;background:#ff4d6d;border-radius:12px;display:flex;align-items:center;justify-content:center;">Item 3</div>
-      <div style="min-width:120px;height:80px;background:#ffe066;border-radius:12px;display:flex;align-items:center;justify-content:center;">Item 4</div>
-      <div style="min-width:120px;height:80px;background:#00e6a4;border-radius:12px;display:flex;align-items:center;justify-content:center;">Item 5</div>
     </div>
   </div>
   <!-- Modal thông báo -->
