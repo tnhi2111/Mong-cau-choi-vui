@@ -231,46 +231,63 @@
     }
     .modal-box .close-modal:hover { opacity: 1;}
 
-    /* Responsive cho mobile */
+    /* ----------- Responsive cho điện thoại ----------- */
     @media (max-width: 600px) {
+      html, body {
+        font-size: 15px;
+        min-height: 100vh;
+        overflow-x: hidden;
+      }
       .container {
         max-width: 97vw;
         padding: 0 2vw;
       }
       img {
-        width: 97vw;
+        width: 95vw;
         max-width: 340px;
-        margin-bottom: 22px;
-        border-radius: 16px;
+        margin-bottom: 18px;
+        border-radius: 14px;
       }
       .dynamic-gradient-text {
-        font-size: 1.5rem;
+        font-size: 1.4rem;
         white-space: normal;
         word-break: break-word;
+        text-align: center;
+        -webkit-text-stroke: 0.5px #fff;
       }
       h2 {
-        font-size: 1.5rem;
+        font-size: 1.3rem;
+        margin: 12px 0 15px;
       }
       .message {
-        font-size: 1rem;
+        font-size: 0.98rem;
+        height: auto;
+        margin-bottom: 3vw;
       }
       .buttons {
-        height: auto;
-        margin-top: 16px;
-        display: flex;
         flex-direction: column;
-        gap: 12px;
+        gap: 10px;
+        margin-top: 15px;
         align-items: center;
-        position: static;
+        height: auto;
+        position: static !important;
       }
       .btn {
         position: static !important;
         width: 90vw;
         max-width: 340px;
         margin: 0 auto 4px auto;
-        font-size: 1.18rem;
+        font-size: 1.1rem;
         border-radius: 8px;
         min-width: unset;
+        white-space: normal;
+      }
+      .modal-box {
+        min-width: unset;
+        width: 95vw;
+        max-width: 99vw;
+        padding: 24px 8px 20px 8px;
+        font-size: 1rem;
       }
     }
   </style>
@@ -279,7 +296,7 @@
   <div class="heart-anim-bg"></div>
   <canvas class="firework-canvas" id="fireworkCanvas"></canvas>
   <div class="container">
-    <img id="cuteImg" src="https://tamkytourism.com/wp-content/uploads/2025/02/anh-meo-cute-5.jpg" alt="cute">
+    <img id="cuteImg" src="https://hinhnenmaytinh4k.org/wp-content/uploads/2025/03/anh-avatar-meo-cute-2-2.jpg" alt="cute">
     <h2>
       <span class="dynamic-gradient-text" id="dynamicText"></span>
     </h2>
