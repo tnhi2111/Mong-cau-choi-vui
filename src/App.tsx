@@ -1,4 +1,4 @@
-import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, type ComponentType } from 'react';
 import { birthdayConfig } from './config/birthday';
 import { gifts } from './data/gifts';
 import type { FinalePhase, Stage, Veil } from './types';
@@ -16,11 +16,30 @@ import { FallbackScene } from './components/experience/FallbackScene';
 import { MusicToggle } from './components/ui/MusicToggle';
 import { ErrorBoundary } from './components/ui/ErrorBoundary';
 
-// Heavy pieces load only when needed.
-const Scene3D = lazy(() => import('./components/3d/Scene3D'));
-const MemoryView = lazy(() => import('./components/experience/MemoryView'));
-const LoveLetter = lazy(() => import('./components/experience/LoveLetter'));
-const FinalReveal = lazy(() => import('./components/experience/FinalReveal'));
+/**
+ * Heavy pieces load only when needed. If the site was redeployed while the page
+ * was open, old chunk files are gone — reload once (progress is saved) instead of breaking.
+ */
+function lazyOrReload<T extends ComponentType<any>>(load: () => Promise<{ default: T }>) {
+  return lazy(() =>
+    load().catch((err) => {
+      try {
+        if (!sessionStorage.getItem('chunk-reload')) {
+          sessionStorage.setItem('chunk-reload', '1');
+          location.reload();
+          return new Promise<never>(() => {});
+        }
+      } catch {
+        /* storage unavailable — fall through */
+      }
+      throw err;
+    }),
+  );
+}
+const Scene3D = lazyOrReload(() => import('./components/3d/Scene3D'));
+const MemoryView = lazyOrReload(() => import('./components/experience/MemoryView'));
+const LoveLetter = lazyOrReload(() => import('./components/experience/LoveLetter'));
+const FinalReveal = lazyOrReload(() => import('./components/experience/FinalReveal'));
 
 const TAPS_NEEDED = 3;
 const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -52,6 +71,11 @@ export default function App() {
 
   useEffect(() => {
     document.title = birthdayConfig.pageTitle;
+    try {
+      sessionStorage.removeItem('chunk-reload');
+    } catch {
+      /* ignore */
+    }
   }, []);
 
   // Coming back later: lift the dark veil over the room.

@@ -51,10 +51,10 @@ export function FallbackScene({
       <div className="fallback fallback--room" aria-hidden="true">
         <span key={pulseKey} className={`css-heart css-heart--center${allOpened ? ' is-awake' : ''}`} />
         {gifts.map((g, i) => {
-          const a = Math.PI / 2 + ((i + 0.5) / n) * Math.PI * 2;
+          const a = Math.PI / 2 + (i / n) * Math.PI * 2; // same layout as the 3D room: first gift on top
           const style = {
             left: `${50 + Math.cos(a) * 34}%`,
-            top: `${48 - Math.sin(a) * 30}%`,
+            top: `${44 - Math.sin(a) * 26}%`,
             ['--tint' as string]: g.tint,
             animationDelay: `${i * 0.4}s`,
           };

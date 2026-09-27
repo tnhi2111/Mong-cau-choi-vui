@@ -29,7 +29,7 @@ body {
   color: rgba(246, 236, 231, 0.45);
 }
 
-.qr__art svg {
+.qr__art > svg {
   width: min(360px, 86vw);
   height: auto;
   filter: drop-shadow(0 0 40px rgba(212, 154, 165, 0.3));

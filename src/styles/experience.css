@@ -389,6 +389,10 @@
   }
 }
 
+.gift-label.is-quiet .gift-label__title {
+  opacity: 0;
+}
+
 /* ── Sheet: memory + letter overlays ────────────────────────────────────── */
 .sheet {
   position: fixed;
@@ -418,7 +422,7 @@
   display: flex;
   justify-content: space-between;
   padding: max(12px, env(safe-area-inset-top)) max(12px, calc(var(--gutter) - 16px)) 12px;
-  background: linear-gradient(180deg, rgba(11, 6, 8, 0.92), rgba(11, 6, 8, 0));
+  background: linear-gradient(180deg, rgba(11, 6, 8, 0.97) 0%, rgba(11, 6, 8, 0.88) 60%, rgba(11, 6, 8, 0));
   pointer-events: none;
 }
 
@@ -912,7 +916,7 @@ body:has(.sheet) .music {
 .fallback--room .css-heart--center {
   position: absolute;
   left: calc(50% - 60px);
-  top: calc(48% - 60px);
+  top: calc(44% - 60px);
 }
 
 .css-heart.is-awake {

@@ -16,6 +16,8 @@ interface Props {
   opening: boolean;
   disabled: boolean;
   focused: boolean;
+  /** Hide the title (e.g. when everything is opened and the heart takes the stage). */
+  quiet?: boolean;
   glass: boolean;
   reducedMotion: boolean;
   onSelect: (id: string) => void;
@@ -251,6 +253,7 @@ export function Gift3D({
   opening,
   disabled,
   focused,
+  quiet = false,
   glass,
   reducedMotion,
   onSelect,
@@ -351,7 +354,7 @@ export function Gift3D({
       </group>
       {!opening && (
         <Html center position={[0, -0.72, 0]} style={{ pointerEvents: 'none' }} zIndexRange={[5, 0]}>
-          <div className={`gift-label${active ? ' is-active' : ''}${opened ? ' is-opened' : ''}`}>
+          <div className={`gift-label${active ? ' is-active' : ''}${opened ? ' is-opened' : ''}${quiet ? ' is-quiet' : ''}`}>
             <span className="gift-label__num">{opened ? '✓' : number}</span>
             <span className="gift-label__title">{gift.title}</span>
           </div>

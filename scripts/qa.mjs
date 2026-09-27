@@ -9,7 +9,7 @@
  * failed requests, horizontal overflow, or any broken step.
  */
 import { chromium } from 'playwright-core';
-import { mkdirSync, existsSync } from 'node:fs';
+import { mkdirSync, existsSync, readFileSync } from 'node:fs';
 
 const args = Object.fromEntries(
   process.argv.slice(2).map((a) => {
@@ -21,7 +21,9 @@ const url = args.url ?? 'http://localhost:4173/';
 const [w, h] = String(args.size ?? '1440x900').split('x').map(Number);
 const mobile = !!args.mobile;
 const reduced = !!args.reduced;
-const password = args.password ?? '01/01/2000';
+// read the real password from the config, so the test never goes stale
+const configured = /birthdayPassword:\s*'([^']+)'/.exec(readFileSync('src/config/birthday.ts', 'utf8'))?.[1];
+const password = args.password ?? configured ?? '01/01/2000';
 const out = `qa-output/${w}x${h}${mobile ? '-touch' : ''}${reduced ? '-reduced' : ''}${args.nogl ? '-nogl' : ''}`;
 mkdirSync(out, { recursive: true });
 
@@ -55,6 +57,9 @@ page.on('requestfailed', (r) => !r.url().includes('our-song') && problems.push(`
 page.on('response', (r) => {
   if (r.status() >= 400 && !r.url().includes('our-song')) problems.push(`HTTP ${r.status()}: ${r.url()}`);
 });
+
+const requested = [];
+page.on('request', (r) => requested.push(r.url()));
 
 let shot = 0;
 const snap = async (name) => {
@@ -94,6 +99,9 @@ try {
   await page.goto(`${url}?reset${args.nogl ? '&nogl' : ''}`, { waitUntil: 'networkidle' });
   await page.waitForTimeout(2500);
   const hasCanvas = await page.locator('canvas').count();
+  const early = requested.filter((u) => /memories\//.test(u));
+  if (early.length) problems.push(`memory photos loaded before any gift was opened: ${early.join(', ')}`);
+  log('requests on first load:', requested.length);
   log('canvas present:', hasCanvas > 0);
   await snap('intro');
   await page.waitForTimeout(4000);
@@ -170,7 +178,11 @@ try {
     await snap(isLetter ? 'letter-typing' : `memory-${i + 1}`);
     await overflow(`gift ${i + 1}`);
     if (isLetter) {
-      await page.getByRole('button', { name: 'Show all' }).click();
+      // with reduced motion the whole letter is already there — no skip button
+      const skip = page.getByRole('button', { name: 'Show all' });
+      if (reduced) {
+        if (await skip.count()) problems.push('reduced motion: letter still typing');
+      } else if (await skip.isVisible()) await skip.click({ timeout: 3000 }).catch(() => {}); // may finish typing first
       await page.waitForTimeout(1500);
       await snap('letter-full');
       await page.locator('.sheet__scroll').evaluate((el) => el.scrollTo(0, el.scrollHeight));

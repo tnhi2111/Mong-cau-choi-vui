@@ -291,8 +291,10 @@ export function FinalWorld({ phase, photos, onFormed, reducedMotion, glass, part
   const [isFormed, setIsFormed] = useState(false);
 
   useFrame((state, dt) => {
-    // real time, but ignore huge gaps (tab in background)
-    clock.current += Math.min(dt, 0.12);
+    // real time, but ignore huge gaps (tab in background). If the page already
+    // moved on (very slow device → safety timeout), hurry the formation along.
+    const hurry = phase !== 'gather' && !formed.current ? 4 : 1;
+    clock.current += Math.min(dt, 0.12) * hurry;
     const T = clock.current;
     if (!formed.current && T >= t.formed) {
       formed.current = true;

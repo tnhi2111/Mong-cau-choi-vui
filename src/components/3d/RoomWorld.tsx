@@ -100,6 +100,7 @@ export function RoomWorld({
           opening={openingId === g.id}
           disabled={opening || paused}
           focused={focusId === g.id}
+          quiet={allOpened}
           glass={glass}
           reducedMotion={reducedMotion}
           onSelect={onSelect}
