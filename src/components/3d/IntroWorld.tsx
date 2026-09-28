@@ -1,4 +1,4 @@
-import { useRef } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
 import type { Stage } from '../../types';
@@ -7,6 +7,7 @@ import { ParticleField } from './ParticleField';
 import { CameraRig } from './CameraRig';
 import { usePointerOrbit } from '../../hooks/usePointerOrbit';
 import { HeartVortex } from './HeartVortex';
+import { CatConstellation } from './CatConstellation';
 import { heartTipY } from './heartShape';
 import { birthdayConfig } from '../../config/birthday';
 
@@ -54,6 +55,17 @@ export function IntroWorld({
         : [0, portrait ? 1.7 : 1.35, -1.6];
   const heartScale = stage === 'intro' ? 0.98 + charge * 0.14 + (unlocked ? 0.06 : 0) : 0.55;
 
+  // The heart of light begins scattered: the first touch gathers it.
+  const lightHeart = heartPoints > 0;
+  const awake = stage !== 'intro' || taps >= 1;
+  const [formed, setFormed] = useState(!lightHeart);
+  const ready = formed || !awake; // touches go to the heart only before gathering, or once it is whole
+  const drop = portrait ? 0.5 : 0.45;
+  const ringR = portrait ? 1.05 : 1.3;
+  const tip = heartTipY() * heartScale;
+  // where the scattered light waits, in the heart's own space (it scales with the heart)
+  const ring = useMemo(() => ({ y: (tip - drop) / heartScale, radius: (ringR * 0.9) / heartScale, tilt: 0.2 }), [tip, drop, ringR, heartScale]);
+
   const dist = portrait ? 1.3 : 1;
   // each beat draws the camera a little closer, the last one most of all
   const camZ = stage === 'intro' ? (6.4 - charge * 0.9 - (unlocked ? 0.5 : 0)) * dist : 6.6 * dist;
@@ -77,9 +89,10 @@ export function IntroWorld({
       />
       <group ref={holder}>
         <Heart3D
-          pulseKey={pulseKey}
+          // the first touch gathers the light; the heart beats from the second on
+          pulseKey={lightHeart && taps < 2 ? 0 : pulseKey}
           charge={charge}
-          interactive={stage === 'intro' && !unlocked}
+          interactive={stage === 'intro' && !unlocked && ready}
           onTap={onHeartTap}
           reducedMotion={reducedMotion}
           glass={glass}
@@ -87,19 +100,23 @@ export function IntroWorld({
           halo={stage === 'intro' ? 1 : 0.8}
           orbit={orbit}
           particles={heartPoints}
+          assembled={awake}
+          onAssembled={() => setFormed(true)}
+          ring={ring}
         />
         {heartPoints > 0 && (
           <HeartVortex
-            tipY={heartTipY() * heartScale}
-            drop={portrait ? 0.5 : 0.45}
-            radius={portrait ? 1.05 : 1.3}
+            tipY={tip}
+            drop={drop}
+            radius={ringR}
+            drip={formed}
             words={birthdayConfig.heart.words}
             visible={stage === 'intro'}
             density={Math.max(0.35, heartPoints / 9000)}
             reducedMotion={reducedMotion}
           />
         )}
-        {heartPoints > 0 && stage === 'intro' && !unlocked && (
+        {heartPoints > 0 && stage === 'intro' && !unlocked && ready && (
           // The heart of light has gaps, and the stream and ring beneath it belong to it too:
           // an invisible panel behind them makes the whole figure answer a touch.
           // (A tap on the heart itself is handled — and stopped — by the heart.)
@@ -116,13 +133,24 @@ export function IntroWorld({
           </mesh>
         )}
       </group>
+      {lightHeart && (
+        // a little cat of light beside the heart — for her
+        <CatConstellation
+          awake={awake}
+          visible={stage === 'intro'}
+          position={portrait ? [-0.72, 2.0, -0.5] : [2.45, -0.05, -0.4]}
+          scale={portrait ? 0.6 : 1.1}
+          density={Math.max(0.4, heartPoints / 9000)}
+          reducedMotion={reducedMotion}
+        />
+      )}
       <ParticleField
         count={Math.round(700 * particleFactor)}
         radius={10}
         innerRadius={1.8}
         burstKey={pulseKey}
         burstDelay={reducedMotion ? 0 : 0.26}
-        intensity={stage === 'intro' ? 0.3 + charge * 0.4 : 0.5}
+        intensity={stage === 'intro' ? (awake ? 0.55 + charge * 0.3 : 0.22) : 0.5}
         reducedMotion={reducedMotion}
       />
     </>

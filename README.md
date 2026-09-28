@@ -67,9 +67,13 @@ Trong `birthday.ts`, mục `heart`:
 
 ## Cô ấy sẽ tương tác thế nào
 
+- **Lúc mở trang:** chưa có trái tim — chỉ có các hạt sáng xoay thành vòng dưới chân và vài hạt
+  lang thang quanh màn. **Chạm vào ánh sáng** thì các hạt xoắn ốc bay lên, tụ lại thành trái tim
+  ánh sáng 3D (kèm tiếng lấp lánh), nền trời sáng dần, và một nhóm hạt ở nền tụ lại thành
+  **chú mèo ánh sáng** bên cạnh. Khi đã thành tim, ánh sáng trên bề mặt luôn chảy từ mũi tim lên.
 - **Trái tim:** kéo để xoay 360° (có quán tính), lăn chuột / chụm hai ngón để phóng to nhẹ.
-  Rê chuột (hoặc chạm) lên tim thì các hạt ánh sáng dạt ra quanh ngón tay. Chạm vào tim (hoặc
-  vòng xoáy bên dưới) để tim đập — ba lần thì cổng mở.
+  Rê chuột (hoặc chạm) lên tim thì các hạt ánh sáng dạt ra quanh ngón tay. Chạm thêm hai lần
+  để tim đập — lần thứ ba thì cổng mở.
 - **Căn phòng quà:** kéo để đi vòng quanh căn phòng; rê chuột lên một món quà thì nó nổi lên và
   sáng; chạm để mở — camera sẽ tiến tới món quà đó.
 - **Mỗi lần mở trang là một lần mới:** tiến trình chỉ nhớ trong tab đang mở. Tải lại trang thì

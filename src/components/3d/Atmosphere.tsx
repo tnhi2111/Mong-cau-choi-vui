@@ -113,15 +113,16 @@ const starVertex = /* glsl */ `
   }
 `;
 const starFragment = /* glsl */ `
+  uniform float uBright;
   varying float vA;
   void main() {
     float d = length(gl_PointCoord - 0.5);
-    gl_FragColor = vec4(vec3(1.0, 0.94, 0.97), smoothstep(0.5, 0.0, d) * vA * 0.9);
+    gl_FragColor = vec4(vec3(1.0, 0.94, 0.97), smoothstep(0.5, 0.0, d) * vA * 0.9 * uBright);
   }
 `;
 
 /** A far, crisp night sky — tiny twinkling stars all around. */
-function Stars({ count }: { count: number }) {
+function Stars({ count, awake }: { count: number; awake: boolean }) {
   const geo = useMemo(() => {
     const g = new THREE.BufferGeometry();
     const pos = new Float32Array(count * 3);
@@ -137,9 +138,14 @@ function Stars({ count }: { count: number }) {
     return g;
   }, [count]);
   useEffect(() => () => geo.dispose(), [geo]);
-  const uniforms = useMemo(() => ({ uTime: { value: 0 }, uPixelRatio: { value: Math.min(window.devicePixelRatio, 2) } }), []);
-  useFrame((state) => {
+  const uniforms = useMemo(
+    () => ({ uTime: { value: 0 }, uPixelRatio: { value: Math.min(window.devicePixelRatio, 2) }, uBright: { value: awake ? 1.3 : 0.4 } }),
+    [], // eslint-disable-line react-hooks/exhaustive-deps
+  );
+  useFrame((state, dt) => {
     uniforms.uTime.value = state.clock.elapsedTime;
+    // the sky lights up over ~3 s when the heart gathers
+    uniforms.uBright.value += ((awake ? 1.3 : 0.4) - uniforms.uBright.value) * (1 - Math.exp(-Math.min(dt, 0.05) * 1.2));
   });
   const starMat = useShader(starVertex, starFragment, uniforms);
   return (
@@ -204,18 +210,21 @@ export function Atmosphere({
   mood,
   bokeh = 14,
   stars = 700,
+  awake = true,
   reducedMotion,
 }: {
   mood: Mood;
   bokeh?: number;
   stars?: number;
+  /** Before the first touch the sky stays dim; it brightens as the heart forms. */
+  awake?: boolean;
   reducedMotion: boolean;
 }) {
   const beam = mood === 'intro' ? 0.1 : mood === 'room' ? 0.06 : 0.12;
   return (
     <>
-      <Stars count={stars} />
-      {!reducedMotion && mood !== 'room' && <ShootingStar />}
+      <Stars count={stars} awake={awake} />
+      {!reducedMotion && mood !== 'room' && awake && <ShootingStar />}
       <Bokeh count={bokeh} reducedMotion={reducedMotion} />
       <Beam opacity={beam} />
     </>

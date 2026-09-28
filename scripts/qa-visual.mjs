@@ -85,6 +85,13 @@ try {
   });
   console.log('• renderer:', renderer);
   await page.waitForTimeout(3500);
+  // before the first touch: only scattered light (the heart of light), or the heart (glass style)
+  await snap('dormant');
+  // first touch: the light gathers into a heart (~3.2 s), the sky wakes, the cat forms
+  await tap(w / 2, h / 2);
+  await page.waitForTimeout(1300);
+  await snap('gathering');
+  await page.waitForTimeout(2800);
   await snap('heart-front');
 
   // turn the heart: ~0.006 rad per px
@@ -97,15 +104,15 @@ try {
   await drag(w / 2, h / 2 + 200, 0, -160);
   await page.waitForTimeout(900);
   await snap('heart-top');
-  // let it drift home
+  // let it drift home (and the cat finish gathering)
   await page.waitForTimeout(7000);
   await snap('heart-home');
 
   if (!mobile) {
-    await page.mouse.move(w / 2 - 60, h / 2 - 40, { steps: 12 });
+    await page.mouse.move(w / 2 - 60, h / 2 - 140, { steps: 12 });
     await page.waitForTimeout(1200);
     await snap('heart-hover-left');
-    await page.mouse.move(w / 2 + 70, h / 2 + 10, { steps: 12 });
+    await page.mouse.move(w / 2 + 70, h / 2 - 90, { steps: 12 });
     await page.waitForTimeout(1200);
     await snap('heart-hover-right');
   }
@@ -116,8 +123,6 @@ try {
   await snap('heart-after-beat');
   if (only === 'heart') throw 'done';
 
-  await tap(w / 2, h / 2);
-  await page.waitForTimeout(900);
   await tap(w / 2, h / 2);
   await page.locator('#bday').waitFor({ timeout: 10000 });
   await page.waitForTimeout(1500);

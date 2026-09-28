@@ -23,6 +23,8 @@ interface Props {
   visible: boolean;
   density: number;
   reducedMotion: boolean;
+  /** Light drips from the tip only once there is a heart to drip from. */
+  drip?: boolean;
 }
 
 const DISC_COLORS = ['#ff4d8d', '#ff7aa8', '#ffa9c6', '#ffd3e2', '#fff0f5', '#ff9aa0'];
@@ -184,10 +186,11 @@ function Words({ words, radius, opacity }: { words: readonly string[]; radius: n
   );
 }
 
-export function HeartVortex({ tipY, drop = 0.7, radius = 1.15, words, visible, density, reducedMotion }: Props) {
+export function HeartVortex({ tipY, drop = 0.7, radius = 1.15, words, visible, density, reducedMotion, drip = true }: Props) {
   const disc = useRef<THREE.Group>(null);
   const wordRing = useRef<THREE.Group>(null);
   const opacity = useRef(0);
+  const dripOn = useRef(0);
   const discCount = Math.round(2600 * density);
   const dripCount = Math.round(260 * density);
   const bottom = tipY - drop;
@@ -257,11 +260,13 @@ export function HeartVortex({ tipY, drop = 0.7, radius = 1.15, words, visible, d
     const t = state.clock.elapsedTime;
     opacity.current += ((visible ? 1 : 0) - opacity.current) * (1 - Math.exp(-dt * 1.8));
     const motion = reducedMotion ? 0.15 : 1;
+    dripOn.current += ((drip ? 1 : 0) - dripOn.current) * (1 - Math.exp(-dt * 1.2));
     for (const u of [discU, dripU]) {
       u.uTime.value = t;
       u.uOpacity.value = opacity.current;
       u.uMotion.value = motion;
     }
+    dripU.uOpacity.value = opacity.current * dripOn.current;
     dripU.uTop.value = tipY + 0.05;
     dripU.uBottom.value = bottom;
     if (wordRing.current) wordRing.current.rotation.y = t * 0.08 * motion;

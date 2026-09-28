@@ -115,7 +115,9 @@ try {
   for (let i = 0; i < 3; i++) {
     if (args.nogl || !hasCanvas) await page.locator('.heart-hit').click();
     else await tap(w / 2, h / 2);
-    await page.waitForTimeout(900);
+    // the first touch gathers the light into a heart (~3.2 s) before it can beat
+    await page.waitForTimeout(i === 0 && !args.nogl && hasCanvas ? (reduced ? 1600 : 3900) : 900);
+    if (i === 0) await snap('intro-gathered');
     if (i === 1) await snap('intro-tap2');
   }
   await page.waitForTimeout(400);

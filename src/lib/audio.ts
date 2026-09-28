@@ -186,6 +186,53 @@ class SoundSystem {
     [0, 2, 4, 5].forEach((p, i) => setTimeout(() => this.chime(p, 0.05), i * 110));
   }
 
+  /**
+   * The sound of scattered light gathering: a soft rising breath of air, a shower of
+   * tiny glassy bells that grows denser as the points fly together, and a warm chord
+   * blooming the moment the heart is whole. `seconds` matches the visual.
+   */
+  gather(seconds = 3.2): void {
+    const ctx = this.ready();
+    if (!ctx || !this.out) return;
+    try {
+      const now = ctx.currentTime;
+      // air: filtered noise whose band sweeps upward
+      const len = Math.ceil(ctx.sampleRate * (seconds + 0.8));
+      const buf = ctx.createBuffer(1, len, ctx.sampleRate);
+      const data = buf.getChannelData(0);
+      for (let i = 0; i < len; i++) data[i] = Math.random() * 2 - 1;
+      const noise = ctx.createBufferSource();
+      noise.buffer = buf;
+      const band = ctx.createBiquadFilter();
+      band.type = 'bandpass';
+      band.Q.value = 1.4;
+      band.frequency.setValueAtTime(380, now);
+      band.frequency.exponentialRampToValueAtTime(3600, now + seconds);
+      const air = ctx.createGain();
+      air.gain.setValueAtTime(0.0001, now);
+      air.gain.exponentialRampToValueAtTime(0.05, now + seconds * 0.7);
+      air.gain.exponentialRampToValueAtTime(0.0001, now + seconds + 0.7);
+      noise.connect(band).connect(air).connect(this.out);
+      noise.start(now);
+      noise.stop(now + seconds + 0.8);
+    } catch {
+      /* decoration only */
+    }
+    // sparkles: sparse at first, denser as the light converges
+    const n = 30;
+    for (let i = 0; i < n; i++) {
+      const at = Math.pow(i / n, 0.7) * seconds * 0.92 + Math.random() * 0.06;
+      const pitch = 7 + ((Math.random() * 8) | 0);
+      const freq = 659.25 * Math.pow(2, PENTATONIC[pitch % PENTATONIC.length] / 12 + Math.floor(pitch / PENTATONIC.length));
+      this.bell(freq, 0.01 + Math.random() * 0.014, 0.7 + Math.random() * 0.5, [[1, 1], [2.76, 0.2]], at);
+    }
+    // the heart is whole
+    [0, 2, 4, 7].forEach((p, i) => {
+      const freq = 329.63 * Math.pow(2, PENTATONIC[p % PENTATONIC.length] / 12 + Math.floor(p / PENTATONIC.length));
+      this.bell(freq, 0.035, 3.2, [[1, 1], [2.01, 0.2], [3.02, 0.06]], seconds + i * 0.05);
+    });
+  }
+
   /** The deep, muffled "thump" under a heartbeat. */
   thump(strength = 1): void {
     const ctx = this.ready();

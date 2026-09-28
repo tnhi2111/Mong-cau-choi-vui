@@ -43,6 +43,8 @@ const LoveLetter = lazyOrReload(() => import('./components/experience/LoveLetter
 const FinalReveal = lazyOrReload(() => import('./components/experience/FinalReveal'));
 
 const TAPS_NEEDED = 3;
+/** The heart of light starts as scattered light; the first touch gathers it. */
+const lightHeart = birthdayConfig.heart.style === 'particles';
 const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 export default function App() {
@@ -124,8 +126,13 @@ export default function App() {
     setTaps((t) => {
       if (t >= TAPS_NEEDED) return t;
       const next = t + 1;
-      sound.chime(next * 2 - 2);
-      setTimeout(() => sound.thump(0.6 + next * 0.2), 110);
+      if (next === 1 && lightHeart) {
+        // the scattered light gathers into a heart
+        sound.gather(reducedMotion ? 1 : 3.2);
+      } else {
+        sound.chime(next * 2 - 2);
+        setTimeout(() => sound.thump(0.6 + next * 0.2), 110);
+      }
       if (next === TAPS_NEEDED) {
         sound.flourish();
         setTimeout(() => setStage('gate'), reducedMotion ? 1200 : 2600);
@@ -240,7 +247,7 @@ export default function App() {
 
   return (
     <>
-      <div className="backdrop" data-stage={stage} aria-hidden="true" />
+      <div className="backdrop" data-stage={stage} data-awake={stage !== 'intro' || taps >= 1} aria-hidden="true" />
 
       <div className="scene-holder" aria-hidden="true" inert={overlayOpen}>
         {webgl ? (

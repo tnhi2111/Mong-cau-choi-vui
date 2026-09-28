@@ -34,7 +34,8 @@ try {
   await page.waitForTimeout(4000);
   for (let i = 0; i < 3; i++) {
     await page.mouse.click(720, 450);
-    await page.waitForTimeout(900);
+    // the first touch gathers the light into a heart before it can beat
+    await page.waitForTimeout(i === 0 ? 3900 : 900);
   }
   await page.locator('#bday').waitFor({ timeout: 10000 });
   await page.waitForTimeout(1200);

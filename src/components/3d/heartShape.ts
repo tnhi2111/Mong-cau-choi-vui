@@ -124,6 +124,40 @@ export function sampleHeartPoints(count: number, shell = 0.62): Float32Array {
   return out;
 }
 
+/**
+ * The heart's radius in every direction, baked into a small texture so a shader
+ * can place a point exactly on the surface for any (θ, φ):
+ *   dir = (sinθ·sinφ, cosθ, sinθ·cosφ), u = φ / 2π, v = θ / π, radius = texel · 1.6
+ * Returned with the normalisation that maps it onto getHeartGeometry('high'):
+ *   position = (dir · radius − (0, cy, 0)) · scale
+ */
+let radiusTex: { texture: THREE.DataTexture; scale: number; cy: number } | null = null;
+export function getHeartRadiusTexture() {
+  if (radiusTex) return radiusTex;
+  if (!norm) getHeartGeometry('high');
+  const W = 128;
+  const H = 64;
+  const data = new Uint8Array(W * H);
+  for (let i = 0; i < H; i++) {
+    const th = ((i + 0.5) / H) * Math.PI;
+    for (let j = 0; j < W; j++) {
+      const ph = ((j + 0.5) / W) * Math.PI * 2;
+      const dx = Math.sin(th) * Math.sin(ph);
+      const dy = Math.cos(th);
+      const dz = Math.sin(th) * Math.cos(ph);
+      data[i * W + j] = Math.round((radiusAlong(dx, dz, dy) / 1.6) * 255);
+    }
+  }
+  const texture = new THREE.DataTexture(data, W, H, THREE.RedFormat, THREE.UnsignedByteType);
+  texture.wrapS = THREE.RepeatWrapping;
+  texture.wrapT = THREE.ClampToEdgeWrapping;
+  texture.magFilter = THREE.LinearFilter;
+  texture.minFilter = THREE.LinearFilter;
+  texture.needsUpdate = true;
+  radiusTex = { texture, scale: norm!.scale, cy: norm!.cy };
+  return radiusTex;
+}
+
 /** Lowest point of the normalised heart (its tip), in geometry space. */
 export function heartTipY(): number {
   return getHeartGeometry('high').boundingBox!.min.y;
