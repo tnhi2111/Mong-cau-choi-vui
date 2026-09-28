@@ -29,7 +29,7 @@ export const birthdayConfig = {
    * The public URL where the site will live. The QR code (open /qr.html)
    * is generated from this value — it is the only place the URL is written.
    */
-  siteUrl: 'https://example.com/', // [SITE_URL]
+  siteUrl: 'https://tnhi2111.github.io/Mong-cau-choi-vui/',
 
   /** The day your story began (YYYY-MM-DD). Used to count the days together. Set to '' to hide. */
   togetherSince: '2020-01-01', // [TOGETHER_SINCE]

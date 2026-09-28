@@ -11,8 +11,7 @@
     "qa": "node scripts/qa.mjs",
     "test": "node --experimental-strip-types --no-warnings tests/password.test.ts",
     "qa:keyboard": "node scripts/qa-keyboard.mjs",
-    "qa:qr": "node scripts/qa-qr.mjs",
-    "preview:build": "vite build --outDir preview --emptyOutDir"
+    "qa:qr": "node scripts/qa-qr.mjs"
   },
   "dependencies": {
     "@fontsource/be-vietnam-pro": "^5.3.0",

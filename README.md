@@ -60,12 +60,18 @@ Mở `/qr.html` (ví dụ `http://localhost:5173/qr.html`). Có nút **Download 
 và **Print**. QR nằm trong khung trái tim nhưng vẫn giữ nền sáng, vùng trống và mức sửa lỗi cao,
 nên điện thoại quét được dễ dàng — `npm run qa:qr` tự kiểm tra điều này.
 
-## Đăng lên mạng
+## Đăng lên mạng (GitHub Pages)
 
-`npm run build` tạo thư mục `dist/` — một trang tĩnh, dùng được ở bất kỳ đâu
-(GitHub Pages, Netlify, Vercel, Cloudflare Pages…). Đường dẫn trong bản build là tương đối,
-nên chạy được cả khi nằm trong thư mục con. Sau khi có địa chỉ thật, nhớ cập nhật `siteUrl`
-rồi build lại để QR trỏ đúng chỗ.
+Website tự động được build và đăng mỗi khi có thay đổi trên nhánh `main`
+(workflow `.github/workflows/deploy.yml`). Địa chỉ:
+
+**https://tnhi2111.github.io/Mong-cau-choi-vui/** — QR: **https://tnhi2111.github.io/Mong-cau-choi-vui/qr.html**
+
+Chỉ cần bật **một lần**: repo → **Settings → Pages → Build and deployment → Source: GitHub Actions**.
+Sau đó vào tab **Actions → Deploy to GitHub Pages → Run workflow** (hoặc push một thay đổi bất kỳ lên `main`).
+
+Muốn đăng ở nơi khác (Netlify, Vercel…): `npm run build` tạo thư mục `dist/` là một trang tĩnh
+hoàn chỉnh; nhớ đổi `siteUrl` cho khớp để QR trỏ đúng chỗ.
 
 ## Riêng tư
 
@@ -112,7 +118,3 @@ npm run qa:qr                              # QR quét được và đúng URL
 ```
 
 Ảnh chụp nằm trong `qa-output/` (không commit).
-
----
-
-Trang cũ ("Do you like me?") được giữ nguyên trong `legacy/`.
