@@ -53,6 +53,18 @@ Mỗi món quà là một khối dữ liệu: tiêu đề, ngày, địa điểm
   Ảnh chỉ được tải khi món quà được mở (không làm chậm lúc vào trang).
 - Nhạc: bỏ file vào `public/audio/our-song.mp3` (hoặc đổi tên trong `music.src`).
   Nhạc **không bao giờ tự phát** — cô ấy bấm nút "Turn on music ♫" góc trên.
+- Hiệu ứng âm thanh (tiếng "ting" khi rê chuột lên quà/trái tim, tiếng chuông khi chạm, nhịp tim)
+  được tạo bằng code, không cần file, và chỉ bắt đầu sau lần chạm đầu tiên. Tắt hoặc chỉnh nhỏ ở
+  `sound.effects` / `sound.volume` trong `birthday.ts`.
+
+## Cô ấy sẽ tương tác thế nào
+
+- **Trái tim:** kéo để xoay 360° (có quán tính), lăn chuột / chụm hai ngón để phóng to nhẹ.
+  Chạm vào để tim đập — ba lần thì cổng mở.
+- **Căn phòng quà:** kéo để đi vòng quanh căn phòng; rê chuột lên một món quà thì nó nổi lên và
+  sáng; chạm để mở — camera sẽ tiến tới món quà đó.
+- **Mỗi lần mở trang là một lần mới:** tiến trình chỉ nhớ trong tab đang mở. Tải lại trang thì
+  vẫn ở chỗ cũ, nhưng đóng tab (hoặc xóa tab rồi quét QR lại) là bắt đầu lại từ trái tim.
 
 ## QR code
 
@@ -78,7 +90,7 @@ hoàn chỉnh; nhớ đổi `siteUrl` cho khớp để QR trỏ đúng chỗ.
 - Mật khẩu chỉ là một "cánh cổng" dễ thương, **không phải bảo mật thật**: ai đọc mã JavaScript
   đều có thể tìm thấy. Đừng để thông tin nhạy cảm sau nó.
 - Website không gửi ảnh hay dữ liệu đi đâu cả; không có analytics. Tiến trình (đã mở quà nào)
-  chỉ lưu trong trình duyệt của cô ấy.
+  chỉ lưu tạm trong tab đang mở (`sessionStorage`) và tự quên khi đóng tab.
 - Trang có `noindex` để không bị Google đánh chỉ mục.
 
 ## Kỹ thuật
@@ -89,6 +101,13 @@ hoàn chỉnh; nhớ đổi `siteUrl` cho khớp để QR trỏ đúng chỗ.
 - Phần 3D, trang kỷ niệm, lá thư và màn cuối đều được tải lười (lazy-load).
 - Hỗ trợ bàn phím (Tab / Enter / Esc), focus rõ ràng, `prefers-reduced-motion`.
 - Thử nhanh: `?quality=low|medium|high` để ép chất lượng, `?nogl` để xem bản 2D.
+- Trái tim là bề mặt ẩn (Taubin heart) bọc lên một khối cầu, pháp tuyến tính từ gradient — mịn
+  ở mọi góc. Vật liệu PBR có thêm shader: màu sâu dần về mũi tim, độ nhám biến thiên, viền fresnel,
+  ánh sáng từ bên trong.
+- Mỗi cảnh có ánh sáng riêng (intro tối và bí ẩn, phòng quà ấm, màn cuối sáng nhất); một nguồn
+  sáng nhỏ đi theo chuột, một đèn viền trượt tới món quà đang được rê chuột.
+- Shader của các cảnh sau được biên dịch sẵn trong lúc cô ấy ngắm trái tim (`Prewarm`), nên vào
+  phòng quà không bị khựng. `npm run qa:perf` canh điều này.
 
 ```
 src/
@@ -98,7 +117,8 @@ src/
 │   ├── 3d/                   Heart3D, Gift3D, ParticleField, IntroWorld, RoomWorld, FinalWorld…
 │   ├── experience/           IntroOverlay, PasswordGate, Welcome, RoomUI, MemoryView,
 │   │                         Timeline, LoveLetter, FinalReveal, FallbackScene
-│   └── ui/                   MusicToggle, Reveal, useDialog, ErrorBoundary
+│   └── ui/                   MusicToggle, CursorLayer, Reveal, useDialog, ErrorBoundary
+├── hooks/                    usePointerOrbit (kéo xoay + quán tính + zoom), useViewport…
 ├── lib/                      password, audio, quality, storage, text
 ├── qr/                       trang QR
 └── styles/                   design tokens + styles từng màn
@@ -115,6 +135,10 @@ npm run qa -- --size=1280x800 --reduced    # giảm chuyển động
 npm run qa -- --size=390x844 --mobile --nogl   # bản 2D không WebGL
 npm run qa:keyboard                        # chỉ dùng bàn phím
 npm run qa:qr                              # QR quét được và đúng URL
+npm run qa:visual -- --gpu                 # chụp trái tim nhiều góc, hover, phòng quà, mở quà
+npm run qa:perf -- --gpu                   # vào phòng quà không khựng (shader đã biên dịch sẵn)
 ```
+
+Trên Windows, trỏ tới Chrome: `CHROME_PATH="C:/Program Files/Google/Chrome/Application/chrome.exe"`.
 
 Ảnh chụp nằm trong `qa-output/` (không commit).

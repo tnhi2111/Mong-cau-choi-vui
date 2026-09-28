@@ -14,6 +14,8 @@ interface Props {
   burstKey?: number;
   /** 0..1 overall brightness. */
   intensity?: number;
+  /** Seconds between a burstKey change and the ripple (e.g. to land on the heartbeat). */
+  burstDelay?: number;
   reducedMotion?: boolean;
 }
 
@@ -75,10 +77,12 @@ export function ParticleField({
   size = 3.2,
   burstKey = 0,
   intensity = 0.8,
+  burstDelay = 0,
   reducedMotion = false,
 }: Props) {
   const matRef = useRef<THREE.ShaderMaterial>(null);
   const burst = useRef(0);
+  const pendingBurst = useRef(-1);
 
   const geometry = useMemo(() => {
     const g = new THREE.BufferGeometry();
@@ -115,8 +119,8 @@ export function ParticleField({
   );
 
   useEffect(() => {
-    if (burstKey > 0) burst.current = reducedMotion ? 0.25 : 1;
-  }, [burstKey, reducedMotion]);
+    if (burstKey > 0) pendingBurst.current = burstDelay;
+  }, [burstKey, burstDelay]);
 
   useEffect(() => {
     uniforms.uColor.value.set(color);
@@ -127,6 +131,10 @@ export function ParticleField({
   useFrame((state, dt) => {
     const u = uniforms;
     u.uTime.value = state.clock.elapsedTime;
+    if (pendingBurst.current >= 0) {
+      pendingBurst.current -= dt;
+      if (pendingBurst.current < 0) burst.current = reducedMotion ? 0.25 : 0.8;
+    }
     burst.current = Math.max(0, burst.current - dt * 0.9);
     u.uBurst.value = burst.current * burst.current * (3 - 2 * burst.current);
     u.uIntensity.value += (intensity - u.uIntensity.value) * Math.min(1, dt * 2);

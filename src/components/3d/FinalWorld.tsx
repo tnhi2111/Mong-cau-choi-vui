@@ -28,11 +28,26 @@ function timing(reduced: boolean) {
     : { drift: 1.6, gather: 3.6, formed: 5.6 };
 }
 
+/** The little hearts of the finale (exported so the shader can be compiled ahead of time). */
+export function createSwarmMaterial(): THREE.MeshPhysicalMaterial {
+  return new THREE.MeshPhysicalMaterial({
+    roughness: 0.25,
+    clearcoat: 1,
+    clearcoatRoughness: 0.08,
+    emissive: new THREE.Color('#6d1f33'),
+    emissiveIntensity: 0.4,
+    sheen: 0.4,
+    sheenColor: new THREE.Color('#ffd6de'),
+  });
+}
+
 /* ── Many small hearts flying in and assembling into one big heart ───────── */
 function HeartSwarm({ count, clock, t }: { count: number; clock: { current: number }; t: ReturnType<typeof timing> }) {
   const mesh = useRef<THREE.InstancedMesh>(null);
   const done = useRef(false);
   const geo = useMemo(() => getHeartGeometry('low'), []);
+  const material = useMemo(createSwarmMaterial, []);
+  useEffect(() => () => material.dispose(), [material]);
   const data = useMemo(() => {
     const start: THREE.Vector3[] = [];
     const end: THREE.Vector3[] = [];
@@ -87,9 +102,7 @@ function HeartSwarm({ count, clock, t }: { count: number; clock: { current: numb
   });
 
   return (
-    <instancedMesh ref={mesh} args={[geo, undefined, count]} frustumCulled={false}>
-      <meshPhysicalMaterial roughness={0.3} clearcoat={1} emissive="#7d2438" emissiveIntensity={0.35} sheen={1} sheenColor="#fff" />
-    </instancedMesh>
+    <instancedMesh ref={mesh} args={[geo, material, count]} frustumCulled={false} />
   );
 }
 

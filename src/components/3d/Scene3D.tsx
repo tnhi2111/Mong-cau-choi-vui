@@ -5,7 +5,9 @@ import * as THREE from 'three';
 import type { FinalePhase, Stage } from '../../types';
 import type { Gift } from '../../data/gifts';
 import { tierSettings, lowerTier, type Tier } from '../../lib/quality';
-import { Lights } from './Lights';
+import { Lights, type Mood } from './Lights';
+import { Atmosphere } from './Atmosphere';
+import { Prewarm } from './Prewarm';
 import { IntroWorld } from './IntroWorld';
 import { RoomWorld } from './RoomWorld';
 import { FinalWorld } from './FinalWorld';
@@ -39,6 +41,9 @@ export default function Scene3D(props: SceneProps) {
   const { stage, tier, onTierChange, paused, reducedMotion, portrait } = props;
   const q = tierSettings[tier];
   const inIntro = stage === 'intro' || stage === 'gate' || stage === 'welcome';
+  const mood: Mood = inIntro ? 'intro' : stage === 'room' ? 'room' : 'final';
+  // a light that follows the mouse only makes sense with a real mouse
+  const finePointer = typeof matchMedia !== 'undefined' && matchMedia('(hover: hover) and (pointer: fine)').matches;
 
   return (
     <Canvas
@@ -49,14 +54,20 @@ export default function Scene3D(props: SceneProps) {
       gl={{ antialias: tier !== 'low', alpha: true, powerPreference: 'high-performance' }}
       onCreated={({ gl }) => {
         gl.toneMapping = THREE.ACESFilmicToneMapping;
-        gl.toneMappingExposure = 1.05;
+        gl.toneMappingExposure = 1.0;
+        // QA hook: lets the Playwright scripts read renderer stats
+        if (import.meta.env.DEV || new URLSearchParams(location.search).has('debug')) {
+          (window as unknown as { __gl?: THREE.WebGLRenderer }).__gl = gl;
+        }
       }}
       aria-hidden="true"
     >
       <PerformanceMonitor flipflops={2} onDecline={() => onTierChange(lowerTier(tier))} />
       <Suspense fallback={null}>
-        <Lights />
+        <Lights mood={mood} cursorLight={finePointer && tier !== 'low' && !reducedMotion} />
       </Suspense>
+      <Atmosphere mood={mood} bokeh={tier === 'low' ? 6 : 14} reducedMotion={reducedMotion} />
+      {inIntro && <Prewarm gifts={props.gifts} glass={q.transmission} />}
       {inIntro && (
         <IntroWorld
           stage={stage}
@@ -86,6 +97,7 @@ export default function Scene3D(props: SceneProps) {
           glass={q.transmission}
           particleFactor={q.particles}
           portrait={portrait}
+          hoverFx={finePointer}
         />
       )}
       {stage === 'final' && (

@@ -402,7 +402,10 @@
   flex-direction: column;
   background:
     radial-gradient(ellipse 80% 50% at 50% 0%, color-mix(in srgb, var(--tint, #d49aa5) 16%, transparent), transparent 70%),
-    linear-gradient(180deg, #120a0d, var(--ink) 60%);
+    linear-gradient(180deg, rgba(18, 10, 13, 0.8), rgba(11, 6, 8, 0.93) 60%);
+  /* the room stays there, softly out of focus, behind the memory */
+  -webkit-backdrop-filter: blur(18px) saturate(1.1);
+  backdrop-filter: blur(18px) saturate(1.1);
   animation: sheet-in 0.9s var(--ease-out) both;
   outline: none;
 }

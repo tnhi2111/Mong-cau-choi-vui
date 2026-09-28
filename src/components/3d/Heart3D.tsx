@@ -2,7 +2,10 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { useFrame, type ThreeEvent } from '@react-three/fiber';
 import * as THREE from 'three';
 import { getHeartGeometry } from './heartShape';
+import { createHeartMaterial } from './heartMaterial';
 import { Glow } from './Glow';
+import type { OrbitInput } from '../../hooks/usePointerOrbit';
+import { sound } from '../../lib/audio';
 
 interface Props {
   /** Increment to make the heart beat once, strongly. */
@@ -20,18 +23,31 @@ interface Props {
   lowDetail?: boolean;
   /** Multiplier for the light glowing from inside the heart. */
   innerLight?: number;
+  /** Lets the viewer turn the heart in their hands (drag / inertia). */
+  orbit?: OrbitInput;
 }
 
-const ROSE = new THREE.Color('#d9909d');
-const DEEP = new THREE.Color('#6d1f33');
+const g = (t: number, c: number, w: number) => Math.exp(-(((t - c) / w) ** 2));
 
-/** Idle heartbeat: two soft beats, then rest. */
-function heartbeat(t: number): number {
-  const c = t % 2.4;
-  const b1 = Math.exp(-Math.pow((c - 0.15) * 11, 2));
-  const b2 = Math.exp(-Math.pow((c - 0.45) * 11, 2)) * 0.6;
-  return b1 + b2;
+/**
+ * One heartbeat after a touch, as offsets (s = size, light = inner light).
+ * A breath of stillness, a squeeze, the strong beat, then a second, softer one.
+ */
+function beat(t: number) {
+  if (t < 0 || t > 1.6) return { s: 0, squash: 0, light: 0 };
+  const s = -0.05 * g(t, 0.14, 0.05) + 0.075 * g(t, 0.3, 0.08) - 0.022 * g(t, 0.53, 0.05) + 0.04 * g(t, 0.66, 0.09);
+  const squash = -0.05 * g(t, 0.14, 0.05) + 0.03 * g(t, 0.3, 0.07) - 0.02 * g(t, 0.53, 0.05);
+  const light = g(t, 0.32, 0.12) + 0.55 * g(t, 0.68, 0.13) + 0.25 * Math.max(0, 1 - t / 1.6);
+  return { s, squash, light };
 }
+
+/** Resting pulse: two quiet beats, then rest — barely there, just alive. */
+function idlePulse(t: number): number {
+  const c = t % 2.6;
+  return g(c, 0.15, 0.09) + 0.6 * g(c, 0.45, 0.09);
+}
+
+const fineHover = () => typeof matchMedia !== 'undefined' && matchMedia('(hover: hover) and (pointer: fine)').matches;
 
 export function Heart3D({
   pulseKey = 0,
@@ -44,19 +60,26 @@ export function Heart3D({
   halo = 1,
   lowDetail = false,
   innerLight = 1,
+  orbit,
 }: Props) {
   const group = useRef<THREE.Group>(null);
+  const tilt = useRef<THREE.Group>(null);
+  const spin = useRef<THREE.Group>(null);
   const mesh = useRef<THREE.Mesh>(null);
-  const mat = useRef<THREE.MeshPhysicalMaterial>(null);
   const glow = useRef<THREE.Sprite>(null);
   const inner = useRef<THREE.PointLight>(null);
   const [hovered, setHovered] = useState(false);
-  const pulse = useRef(0);
+  const beatStart = useRef(-10);
+  const hover = useRef(0);
   const s = useRef(scale * 0.6);
   const geometry = useMemo(() => getHeartGeometry(lowDetail ? 'low' : 'high'), [lowDetail]);
+  const { material, uniforms } = useMemo(() => createHeartMaterial(glass), [glass]);
+  const clock = useRef(0);
+
+  useEffect(() => () => material.dispose(), [material]);
 
   useEffect(() => {
-    if (pulseKey > 0) pulse.current = 1;
+    if (pulseKey > 0) beatStart.current = clock.current;
   }, [pulseKey]);
 
   useEffect(() => {
@@ -67,98 +90,91 @@ export function Heart3D({
     };
   }, [hovered, interactive]);
 
-  useFrame((state, dt) => {
-    const g = group.current;
-    if (!g) return;
-    const t = state.clock.elapsedTime;
-    const k = Math.min(1, dt * 6);
+  useFrame((state, rawDt) => {
+    const grp = group.current;
+    if (!grp || !spin.current || !tilt.current || !mesh.current) return;
+    const dt = Math.min(rawDt, 0.05);
+    clock.current = state.clock.elapsedTime;
+    const t = clock.current;
+    const motion = reducedMotion ? 0 : 1;
 
-    pulse.current = Math.max(0, pulse.current - dt * 1.1);
-    const p = pulse.current;
-    // damped wobble: big squeeze then settle
-    const pulseScale = reducedMotion ? p * 0.06 : Math.sin((1 - p) * Math.PI * 3) * p * 0.2 + p * 0.08;
-    const beat = reducedMotion ? 0 : heartbeat(t) * (0.025 + charge * 0.03);
-    const target = scale * (1 + beat + pulseScale + (hovered && interactive ? 0.06 : 0));
-    s.current += (target - s.current) * Math.min(1, dt * 9);
-    g.scale.setScalar(s.current);
+    const b = beat(t - beatStart.current);
+    const beatAmt = reducedMotion ? 0.3 : 1;
+    hover.current += ((hovered && interactive ? 1 : 0) - hover.current) * (1 - Math.exp(-dt * 5));
+    const h = hover.current;
 
-    // look toward the pointer — tiny, never dizzy
-    const motion = reducedMotion ? 0.15 : 1;
-    const ry = Math.sin(t * 0.35) * 0.35 * motion + state.pointer.x * 0.45 * motion + p * 0.6 * motion;
-    const rx = -state.pointer.y * 0.22 * motion + Math.sin(t * 0.5) * 0.04 * motion;
-    g.rotation.y += (ry - g.rotation.y) * k * 0.5;
-    g.rotation.x += (rx - g.rotation.x) * k * 0.5;
-    g.position.y = reducedMotion ? 0 : Math.sin(t * 0.8) * 0.05;
+    // breathing + a resting pulse + the touch heartbeat
+    const breath = Math.sin(t * 1.25) * 0.011 * motion;
+    const idle = idlePulse(t) * (0.008 + charge * 0.012) * motion;
+    const target = scale * (1 + breath + idle + b.s * beatAmt);
+    s.current += (target - s.current) * (1 - Math.exp(-dt * 10));
+    grp.scale.setScalar(s.current);
+    // squeeze a touch more vertically than sideways — reads as muscle, not a balloon
+    const sq = b.squash * beatAmt;
+    mesh.current.scale.set(1 - sq * 0.35, 1 + sq, 1 - sq * 0.35);
 
-    const light = 0.1 + charge * 0.3 + p * 0.9 + (hovered && interactive ? 0.1 : 0);
-    if (mat.current) {
-      mat.current.emissiveIntensity += (light * Math.min(1, 0.4 + innerLight) - mat.current.emissiveIntensity) * k;
+    // floating, never spinning on its own
+    grp.position.y = Math.sin(t * 0.72) * 0.045 * motion;
+
+    let yaw = Math.sin(t * 0.31) * 0.14 * motion + state.pointer.x * 0.12 * motion;
+    let pitch = Math.sin(t * 0.47) * 0.045 * motion - state.pointer.y * 0.07 * motion;
+    if (orbit) {
+      orbit.step(dt);
+      // after a while untouched, the heart turns gently back to face her
+      if (!orbit.dragging && orbit.idle() > 3.5) {
+        const home = Math.round(orbit.tYaw / (Math.PI * 2)) * Math.PI * 2;
+        const k = 1 - Math.exp(-dt * 0.5);
+        orbit.tYaw += (home - orbit.tYaw) * k;
+        orbit.tPitch += (0 - orbit.tPitch) * k;
+      }
+      yaw += orbit.yaw;
+      pitch += orbit.pitch;
     }
+    spin.current.rotation.y = yaw;
+    tilt.current.rotation.x = pitch;
+
+    const light = 0.1 + charge * 0.28 + b.light * 0.9 + h * 0.1;
+    const kk = 1 - Math.exp(-dt * 8);
+    uniforms.uGlow.value += (light * Math.min(1, 0.4 + innerLight) * 0.55 - uniforms.uGlow.value) * kk;
+    uniforms.uRim.value += (0.22 + charge * 0.1 + h * 0.3 + b.light * 0.2 - uniforms.uRim.value) * kk;
     if (glow.current) {
       const m = glow.current.material as THREE.SpriteMaterial;
-      m.opacity += (0.2 + charge * 0.25 + p * 0.5 - m.opacity) * k;
-      const gs = (2.6 + charge * 1.2 + p * 1.6) * halo;
-      glow.current.scale.setScalar(gs);
+      m.opacity += (0.1 + charge * 0.12 + b.light * 0.3 + h * 0.05 - m.opacity) * kk;
+      glow.current.scale.setScalar((2.8 + charge * 0.8 + b.light * 1.1) * halo);
     }
-    if (inner.current) inner.current.intensity = (1.5 + light * 6) * innerLight;
+    if (inner.current) inner.current.intensity = (1.2 + light * 5) * innerLight;
   });
 
   const handle = (e: ThreeEvent<MouseEvent>) => {
     if (!interactive) return;
     e.stopPropagation();
+    if (e.delta > 8 || (orbit && orbit.travel > 10)) return; // that was a drag
     onTap?.();
   };
 
   return (
     <group ref={group}>
-      <Glow ref={glow} color="#ffc9d3" size={2.6} opacity={0.25} />
-      <mesh
-        ref={mesh}
-        geometry={geometry}
-        onClick={handle}
-        onPointerOver={(e) => {
-          e.stopPropagation();
-          setHovered(true);
-        }}
-        onPointerOut={() => setHovered(false)}
-      >
-        {glass ? (
-          <meshPhysicalMaterial
-            ref={mat}
-            color={ROSE}
-            emissive={DEEP}
-            emissiveIntensity={0.12}
-            roughness={0.12}
-            metalness={0}
-            transmission={0.55}
-            thickness={1.2}
-            ior={1.35}
-            attenuationColor="#c24a64"
-            attenuationDistance={0.9}
-            clearcoat={1}
-            clearcoatRoughness={0.08}
-            sheen={0.6}
-            sheenColor="#ffe2e7"
-            iridescence={0.25}
-            iridescenceIOR={1.25}
+      <Glow ref={glow} color="#ff9fb4" size={2.8} opacity={0.12} />
+      <group ref={tilt}>
+        <group ref={spin}>
+          <mesh
+            ref={mesh}
+            geometry={geometry}
+            material={material}
+            onClick={handle}
+            onPointerOver={(e) => {
+              e.stopPropagation();
+              setHovered(true);
+              if (interactive && fineHover()) sound.hover('heart');
+            }}
+            onPointerOut={() => {
+              setHovered(false);
+              sound.hoverEnd('heart');
+            }}
           />
-        ) : (
-          <meshPhysicalMaterial
-            ref={mat}
-            color={ROSE}
-            emissive={DEEP}
-            emissiveIntensity={0.12}
-            roughness={0.22}
-            metalness={0.02}
-            clearcoat={1}
-            clearcoatRoughness={0.1}
-            sheen={1}
-            sheenRoughness={0.4}
-            sheenColor="#ffe2e7"
-          />
-        )}
-      </mesh>
-      <pointLight ref={inner} color="#ff8fa6" intensity={2} distance={3.2} position={[0, 0, 0.9]} />
+        </group>
+      </group>
+      <pointLight ref={inner} color="#ff7d97" intensity={2} distance={3.2} decay={2} position={[0, 0, 0]} />
     </group>
   );
 }

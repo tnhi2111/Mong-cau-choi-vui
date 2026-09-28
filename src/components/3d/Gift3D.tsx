@@ -5,12 +5,20 @@ import * as THREE from 'three';
 import type { Gift } from '../../data/gifts';
 import { Glow } from './Glow';
 import { getHeartGeometry } from './heartShape';
+import { getPaperTexture, getShadowTexture } from './glowTexture';
+import { Spring } from './CameraRig';
+import { sound } from '../../lib/audio';
 
 interface Props {
   gift: Gift;
   index: number;
+  /** Resting place on the ring. */
   home: [number, number, number];
+  /** Where it rises to while opening (in front of the camera). */
   showcase: [number, number, number];
+  /** Direction the gift faces (radians around Y) — outward from the heart. */
+  facing: number;
+  floorY: number;
   size: number;
   opened: boolean;
   opening: boolean;
@@ -20,8 +28,11 @@ interface Props {
   quiet?: boolean;
   glass: boolean;
   reducedMotion: boolean;
+  /** Fine pointer present: hover sparkles, tilt and sound. */
+  hoverFx: boolean;
   onSelect: (id: string) => void;
   onOpened: (id: string) => void;
+  onHover: (id: string, on: boolean) => void;
 }
 
 /** 0 → 1 while the gift is being opened. Shared with the shape so lids/flaps can move. */
@@ -43,7 +54,7 @@ function starGeometry(): THREE.ExtrudeGeometry {
     bevelEnabled: true,
     bevelThickness: 0.07,
     bevelSize: 0.05,
-    bevelSegments: 4,
+    bevelSegments: 6,
   });
   g.center();
   return g;
@@ -58,11 +69,122 @@ function flapGeometry(): THREE.ShapeGeometry {
   return new THREE.ShapeGeometry(s);
 }
 
-function GiftBody({ gift, progress, glass }: { gift: Gift; progress: Progress; glass: boolean }) {
+/**
+ * Each object gets a material that fits what it is — wrapping paper and satin,
+ * glass, polished metal, card — so the room reads as real things, not icons.
+ * The "main" material is returned too, so hover can warm it up.
+ */
+export type GiftMaterials = {
+  main: THREE.MeshPhysicalMaterial;
+  ribbon?: THREE.MeshPhysicalMaterial;
+  flap?: THREE.MeshPhysicalMaterial;
+  seal?: THREE.MeshPhysicalMaterial;
+};
+
+export function createGiftMaterials(gift: Pick<Gift, 'shape' | 'tint'>, glass: boolean): GiftMaterials {
+  const tint = new THREE.Color(gift.tint);
+  const paperTex = getPaperTexture();
+  const glassShell = (thickness: number) =>
+    new THREE.MeshPhysicalMaterial({
+      color: tint.clone().lerp(new THREE.Color('#ffffff'), 0.35),
+      roughness: 0.05,
+      metalness: 0,
+      ior: 1.5,
+      clearcoat: 1,
+      clearcoatRoughness: 0.03,
+      iridescence: 0.25,
+      iridescenceIOR: 1.3,
+      transmission: glass ? 1 : 0,
+      thickness,
+      attenuationColor: tint,
+      attenuationDistance: 1.2,
+      transparent: !glass,
+      opacity: glass ? 1 : 0.32,
+      depthWrite: glass,
+      specularIntensity: 1,
+      envMapIntensity: 1.3,
+    });
+  switch (gift.shape) {
+    case 'box': {
+      const main = new THREE.MeshPhysicalMaterial({
+        color: tint,
+        roughness: 0.62,
+        sheen: 0.55,
+        sheenRoughness: 0.7,
+        sheenColor: new THREE.Color('#fff1ee'),
+        clearcoat: 0.1,
+        clearcoatRoughness: 0.6,
+        bumpMap: paperTex,
+        bumpScale: 1.2,
+        emissive: tint,
+        emissiveIntensity: 0,
+      });
+      const ribbon = new THREE.MeshPhysicalMaterial({
+        color: '#9a2745',
+        roughness: 0.32,
+        sheen: 1,
+        sheenRoughness: 0.28,
+        sheenColor: new THREE.Color('#ffb9c9'),
+        clearcoat: 0.3,
+        clearcoatRoughness: 0.25,
+      });
+      return { main, ribbon };
+    }
+    case 'capsule':
+      return { main: glassShell(0.35) };
+    case 'orb':
+      return { main: glassShell(0.8) };
+    case 'star': {
+      const main = new THREE.MeshPhysicalMaterial({
+        color: new THREE.Color('#f2c7ae').lerp(tint, 0.3),
+        metalness: 0.92,
+        roughness: 0.24,
+        clearcoat: 0.5,
+        clearcoatRoughness: 0.08,
+        iridescence: 0.12,
+        emissive: tint,
+        emissiveIntensity: 0,
+      });
+      return { main };
+    }
+    case 'envelope': {
+      const main = new THREE.MeshPhysicalMaterial({
+        color: '#f3e6d8',
+        roughness: 0.82,
+        sheen: 0.3,
+        sheenRoughness: 0.9,
+        sheenColor: new THREE.Color('#ffffff'),
+        bumpMap: paperTex,
+        bumpScale: 0.8,
+        emissive: tint,
+        emissiveIntensity: 0,
+      });
+      const flap = main.clone();
+      flap.color = new THREE.Color('#ead9c7');
+      flap.side = THREE.DoubleSide;
+      const seal = new THREE.MeshPhysicalMaterial({ color: '#7a1c33', roughness: 0.38, clearcoat: 0.6, clearcoatRoughness: 0.2 });
+      return { main, flap, seal };
+    }
+  }
+}
+
+function useGiftMaterials(gift: Gift, glass: boolean): GiftMaterials {
+  const mats = useMemo(() => createGiftMaterials(gift, glass), [gift, glass]);
+
+  useEffect(
+    () => () => {
+      Object.values(mats).forEach((m) => m?.dispose());
+    },
+    [mats],
+  );
+  return mats;
+}
+
+function GiftBody({ gift, progress, hover, glass }: { gift: Gift; progress: Progress; hover: Progress; glass: boolean }) {
   const lid = useRef<THREE.Group>(null);
   const core = useRef<THREE.Mesh>(null);
   const light = useRef<THREE.Sprite>(null);
-  const tint = useMemo(() => new THREE.Color(gift.tint), [gift.tint]);
+  const mats = useGiftMaterials(gift, glass);
   const star = useMemo(() => (gift.shape === 'star' ? starGeometry() : null), [gift.shape]);
   const flap = useMemo(() => (gift.shape === 'envelope' ? flapGeometry() : null), [gift.shape]);
 
@@ -76,78 +198,62 @@ function GiftBody({ gift, progress, glass }: { gift: Gift; progress: Progress; g
 
   useFrame((state) => {
     const o = progress.current;
-    const open = THREE.MathUtils.smoothstep(o, 0.45, 0.9);
+    const h = hover.current;
+    const open = THREE.MathUtils.smoothstep(o, 0.4, 0.85);
     if (lid.current) {
       if (gift.shape === 'box') {
-        lid.current.rotation.x = -open * 1.25;
-        lid.current.position.y = 0.24 + open * 0.12;
+        lid.current.rotation.x = -open * 1.35;
+        lid.current.position.y = 0.24 + open * 0.1;
       }
       if (gift.shape === 'envelope') lid.current.rotation.x = open * Math.PI * 0.92;
     }
     if (light.current) {
-      (light.current.material as THREE.SpriteMaterial).opacity = open * 0.9;
-      light.current.scale.setScalar(0.4 + open * 1.4);
-      light.current.position.y = 0.1 + open * 0.35;
+      (light.current.material as THREE.SpriteMaterial).opacity = open * 0.95;
+      light.current.scale.setScalar(0.4 + open * 1.6);
+      light.current.position.y = 0.1 + open * 0.4;
     }
     if (core.current) {
       const pulse = 0.5 + 0.5 * Math.sin(state.clock.elapsedTime * 2.2);
-      (core.current.material as THREE.MeshBasicMaterial).opacity = 0.55 + pulse * 0.25 + open * 0.2;
+      (core.current.material as THREE.MeshBasicMaterial).opacity = 0.5 + pulse * 0.2 + h * 0.2 + open * 0.3;
       const base = (core.current.userData.base as number | undefined) ?? (core.current.userData.base = core.current.scale.x);
-      core.current.scale.setScalar(base * (1 + open * 0.5));
+      core.current.scale.setScalar(base * (1 + open * 0.5 + h * 0.08));
+    }
+    // warm the surface a touch when she hovers, and flare as it opens
+    if (mats.main.emissiveIntensity !== undefined && gift.shape !== 'capsule' && gift.shape !== 'orb') {
+      mats.main.emissiveIntensity = h * 0.12 + open * 0.3;
     }
   });
-
-  const surface = (
-    <meshPhysicalMaterial
-      color={tint}
-      roughness={0.32}
-      clearcoat={1}
-      clearcoatRoughness={0.15}
-      sheen={0.8}
-      sheenColor="#fff2ee"
-      emissive={tint}
-      emissiveIntensity={0.08}
-    />
-  );
-  const ribbon = <meshStandardMaterial color="#8f3c50" roughness={0.45} metalness={0.1} />;
 
   switch (gift.shape) {
     case 'box':
       return (
         <group>
-          <RoundedBox args={[0.6, 0.48, 0.6]} radius={0.05} smoothness={3}>
-            {surface}
-          </RoundedBox>
-          <mesh position={[0, 0, 0]}>
-            <boxGeometry args={[0.1, 0.49, 0.61]} />
-            {ribbon}
+          <RoundedBox args={[0.6, 0.48, 0.6]} radius={0.035} smoothness={4} material={mats.main} />
+          <mesh material={mats.ribbon}>
+            <boxGeometry args={[0.1, 0.485, 0.605]} />
           </mesh>
-          <mesh position={[0, 0, 0]}>
-            <boxGeometry args={[0.61, 0.49, 0.1]} />
-            {ribbon}
+          <mesh material={mats.ribbon}>
+            <boxGeometry args={[0.605, 0.485, 0.1]} />
           </mesh>
           <Glow ref={light} color="#fff1ee" size={0.4} opacity={0} />
           {/* lid hinged on the back edge */}
           <group ref={lid} position={[0, 0.24, -0.33]}>
             <group position={[0, 0.06, 0.33]}>
-              <RoundedBox args={[0.66, 0.13, 0.66]} radius={0.04} smoothness={3}>
-                {surface}
-              </RoundedBox>
-              <mesh>
-                <boxGeometry args={[0.1, 0.135, 0.67]} />
-                {ribbon}
+              <RoundedBox args={[0.66, 0.13, 0.66]} radius={0.03} smoothness={4} material={mats.main} />
+              <mesh material={mats.ribbon}>
+                <boxGeometry args={[0.1, 0.135, 0.665]} />
               </mesh>
-              <mesh>
-                <boxGeometry args={[0.67, 0.135, 0.1]} />
-                {ribbon}
+              <mesh material={mats.ribbon}>
+                <boxGeometry args={[0.665, 0.135, 0.1]} />
               </mesh>
-              <mesh position={[-0.07, 0.1, 0]} rotation={[0, 0, 0.6]}>
-                <torusGeometry args={[0.07, 0.022, 8, 20]} />
-                {ribbon}
+              <mesh position={[-0.075, 0.105, 0]} rotation={[0, 0, 0.55]} scale={[1, 0.75, 1.5]} material={mats.ribbon}>
+                <torusGeometry args={[0.075, 0.024, 12, 28]} />
               </mesh>
-              <mesh position={[0.07, 0.1, 0]} rotation={[0, 0, -0.6]}>
-                <torusGeometry args={[0.07, 0.022, 8, 20]} />
-                {ribbon}
+              <mesh position={[0.075, 0.105, 0]} rotation={[0, 0, -0.55]} scale={[1, 0.75, 1.5]} material={mats.ribbon}>
+                <torusGeometry args={[0.075, 0.024, 12, 28]} />
+              </mesh>
+              <mesh position={[0, 0.09, 0]} material={mats.ribbon}>
+                <sphereGeometry args={[0.035, 16, 12]} />
               </mesh>
             </group>
           </group>
@@ -156,41 +262,20 @@ function GiftBody({ gift, progress, glass }: { gift: Gift; progress: Progress; g
     case 'capsule':
       return (
         <group rotation={[0, 0, 0.5]}>
-          <mesh>
-            <capsuleGeometry args={[0.2, 0.42, 8, 24]} />
-            <meshPhysicalMaterial
-              color={tint}
-              roughness={0.05}
-              transmission={glass ? 0.9 : 0}
-              thickness={0.4}
-              transparent
-              opacity={glass ? 1 : 0.42}
-              clearcoat={1}
-              depthWrite={false}
-            />
+          <mesh material={mats.main}>
+            <capsuleGeometry args={[0.2, 0.42, 12, 32]} />
           </mesh>
-          <mesh ref={core} geometry={getHeartGeometry('low')} scale={0.18}>
-            <meshBasicMaterial color="#ffd9df" transparent opacity={0.7} toneMapped={false} />
+          <mesh ref={core} geometry={getHeartGeometry('low')} scale={0.13}>
+            <meshBasicMaterial color="#ffd0da" transparent opacity={0.7} toneMapped={false} />
           </mesh>
         </group>
       );
     case 'star':
       return (
         <group>
-          <mesh geometry={star!}>
-            <meshPhysicalMaterial
-              color={tint}
-              roughness={0.2}
-              metalness={0.35}
-              clearcoat={1}
-              iridescence={0.6}
-              iridescenceIOR={1.3}
-              emissive={tint}
-              emissiveIntensity={0.18}
-            />
-          </mesh>
-          <mesh ref={core} position={[0, 0, 0.12]}>
-            <sphereGeometry args={[0.05, 12, 12]} />
+          <mesh geometry={star!} material={mats.main} />
+          <mesh ref={core} position={[0, 0, 0.13]}>
+            <sphereGeometry args={[0.035, 12, 12]} />
             <meshBasicMaterial color="#fff6ea" transparent opacity={0.7} toneMapped={false} />
           </mesh>
         </group>
@@ -198,56 +283,106 @@ function GiftBody({ gift, progress, glass }: { gift: Gift; progress: Progress; g
     case 'orb':
       return (
         <group>
-          <mesh>
-            <sphereGeometry args={[0.32, 32, 32]} />
-            <meshPhysicalMaterial
-              color={tint}
-              roughness={0.04}
-              transmission={glass ? 0.95 : 0}
-              thickness={0.6}
-              transparent
-              opacity={glass ? 1 : 0.35}
-              iridescence={0.5}
-              clearcoat={1}
-              depthWrite={false}
-            />
+          <mesh material={mats.main}>
+            <sphereGeometry args={[0.32, 48, 32]} />
           </mesh>
           <mesh ref={core}>
-            <sphereGeometry args={[0.1, 16, 16]} />
-            <meshBasicMaterial color="#fbe7ff" transparent opacity={0.7} toneMapped={false} />
+            <sphereGeometry args={[0.085, 24, 16]} />
+            <meshBasicMaterial color="#fbe2ff" transparent opacity={0.7} toneMapped={false} />
           </mesh>
         </group>
       );
     case 'envelope':
       return (
         <group>
-          <mesh>
-            <boxGeometry args={[0.8, 0.52, 0.04]} />
-            <meshStandardMaterial color="#f4e8dc" roughness={0.7} />
+          <mesh material={mats.main}>
+            <boxGeometry args={[0.8, 0.52, 0.035]} />
           </mesh>
-          <mesh ref={core} position={[0, 0.05, 0.005]}>
+          <mesh ref={core} position={[0, 0.05, 0.02]}>
             <planeGeometry args={[0.66, 0.36]} />
-            <meshBasicMaterial color="#fffaf4" transparent opacity={0.6} toneMapped={false} />
+            <meshBasicMaterial color="#fff6ec" transparent opacity={0.4} toneMapped={false} />
           </mesh>
-          <group ref={lid} position={[0, 0.26, 0.025]}>
-            <mesh geometry={flap!}>
-              <meshStandardMaterial color="#eadbcb" roughness={0.7} side={THREE.DoubleSide} />
-            </mesh>
-            <mesh geometry={getHeartGeometry('low')} position={[0, -0.26, 0.03]} scale={0.1}>
-              <meshPhysicalMaterial color="#7d2438" roughness={0.3} clearcoat={1} />
-            </mesh>
+          <group ref={lid} position={[0, 0.26, 0.02]}>
+            <mesh geometry={flap!} material={mats.flap} />
+            <mesh geometry={getHeartGeometry('low')} position={[0, -0.25, 0.025]} scale={[0.07, 0.07, 0.035]} material={mats.seal} />
           </group>
         </group>
       );
   }
 }
 
-/** One floating gift in the room: hover glow, click to fly forward and open. */
+const sparkVertex = /* glsl */ `
+  uniform float uTime;
+  uniform float uOn;
+  uniform float uPixelRatio;
+  attribute float aSeed;
+  varying float vA;
+  void main() {
+    float life = fract(uTime * (0.25 + aSeed * 0.2) + aSeed * 7.0);
+    vec3 p = position * (0.85 + life * 0.35);
+    p.y += life * 0.35;
+    vec4 mv = modelViewMatrix * vec4(p, 1.0);
+    gl_Position = projectionMatrix * mv;
+    gl_PointSize = (1.5 + aSeed * 2.5) * uPixelRatio * (6.0 / -mv.z);
+    vA = uOn * sin(3.14159 * life);
+  }
+`;
+const sparkFragment = /* glsl */ `
+  varying float vA;
+  void main() {
+    float d = length(gl_PointCoord - 0.5);
+    float a = smoothstep(0.5, 0.0, d);
+    gl_FragColor = vec4(vec3(1.0, 0.9, 0.93), a * a * vA);
+  }
+`;
+
+/** A few tiny lights that rise around a gift while it is hovered. */
+function HoverSparkles({ on }: { on: Progress }) {
+  const uniforms = useMemo(
+    () => ({ uTime: { value: 0 }, uOn: { value: 0 }, uPixelRatio: { value: Math.min(window.devicePixelRatio, 2) } }),
+    [],
+  );
+  const geo = useMemo(() => {
+    const n = 14;
+    const pos = new Float32Array(n * 3);
+    const seed = new Float32Array(n);
+    const v = new THREE.Vector3();
+    for (let i = 0; i < n; i++) {
+      v.randomDirection().multiplyScalar(0.45 + Math.random() * 0.25);
+      v.y *= 0.8;
+      pos.set([v.x, v.y, v.z], i * 3);
+      seed[i] = Math.random();
+    }
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+    g.setAttribute('aSeed', new THREE.BufferAttribute(seed, 1));
+    return g;
+  }, []);
+  useEffect(() => () => geo.dispose(), [geo]);
+  const pts = useRef<THREE.Points>(null);
+  useFrame((state) => {
+    uniforms.uTime.value = state.clock.elapsedTime;
+    uniforms.uOn.value = on.current;
+    if (pts.current) pts.current.visible = on.current > 0.01;
+  });
+  return (
+    <points ref={pts} geometry={geo} frustumCulled={false}>
+      <shaderMaterial vertexShader={sparkVertex} fragmentShader={sparkFragment} uniforms={uniforms} transparent depthWrite={false} blending={THREE.AdditiveBlending} />
+    </points>
+  );
+}
+
+const tmp = new THREE.Vector3();
+const toCam = new THREE.Vector3();
+
+/** One gift standing in the room: hover lifts and lights it, click opens it toward the camera. */
 export function Gift3D({
   gift,
   index,
   home,
   showcase,
+  facing,
+  floorY,
   size,
   opened,
   opening,
@@ -256,20 +391,32 @@ export function Gift3D({
   quiet = false,
   glass,
   reducedMotion,
+  hoverFx,
   onSelect,
   onOpened,
+  onHover,
 }: Props) {
   const root = useRef<THREE.Group>(null);
   const spin = useRef<THREE.Group>(null);
   const glow = useRef<THREE.Sprite>(null);
+  const shadow = useRef<THREE.Mesh>(null);
+  const label = useRef<HTMLDivElement>(null);
   const progress = useRef(0);
+  const hover = useRef(0);
+  const lift = useMemo(() => new Spring(0), []);
+  const tiltX = useMemo(() => new Spring(0), []);
+  const tiltZ = useMemo(() => new Spring(0), []);
+  const aim = useRef({ x: 0, y: 0 });
   const notified = useRef(false);
   const [hovered, setHovered] = useState(false);
   const phase = useMemo(() => index * 1.7, [index]);
   const homeV = useMemo(() => new THREE.Vector3(...home), [home]);
   const showV = useMemo(() => new THREE.Vector3(...showcase), [showcase]);
-  const tmp = useMemo(() => new THREE.Vector3(), []);
-  const active = hovered || focused;
+  const active = (hovered || focused) && !disabled;
+  // at rest, gifts turn part-way toward the room's front so thin ones (the envelope) never show only an edge
+  // (wrapped to −π…π so turning between the two always takes the short way)
+  const face = useMemo(() => Math.atan2(Math.sin(facing), Math.cos(facing)), [facing]);
+  const restFacing = face * 0.45;
 
   useEffect(() => {
     if (!opening) notified.current = false;
@@ -279,39 +426,64 @@ export function Gift3D({
     if (disabled) setHovered(false);
   }, [disabled]);
 
-  useFrame((state, dt) => {
+  useEffect(() => {
+    onHover(gift.id, active);
+  }, [active, gift.id, onHover]);
+
+  useFrame((state, rawDt) => {
     const r = root.current;
     const s = spin.current;
     if (!r || !s) return;
+    const dt = Math.min(rawDt, 0.05);
     const t = state.clock.elapsedTime;
 
-    const speed = reducedMotion ? 2.2 : 0.95;
-    progress.current = opening
-      ? Math.min(1, progress.current + dt * speed)
-      : Math.max(0, progress.current - dt * 1.6);
+    const speed = reducedMotion ? 2.4 : 1.05;
+    // timing runs on real time (not frames), so a slow phone opens just as quickly
+    const real = Math.min(rawDt, 0.25);
+    progress.current = opening ? Math.min(1, progress.current + real * speed) : Math.max(0, progress.current - real * 1.6);
     const o = progress.current;
     const e = o * o * (3 - 2 * o);
+    hover.current += ((active ? 1 : 0) - hover.current) * (1 - Math.exp(-dt * 6));
+    const h = hover.current;
 
-    // float at home, fly to the showcase point while opening
-    const bob = reducedMotion ? 0 : Math.sin(t * 0.9 + phase) * 0.08;
-    tmp.copy(homeV).setY(homeV.y + bob).lerp(showV, e);
+    // floating at home; lifts a little when hovered; rises toward the camera while opening
+    const bob = reducedMotion ? 0 : Math.sin(t * 0.9 + phase) * 0.06;
+    const up = lift.step(active ? 0.16 : 0, 9, dt);
+    tmp.copy(homeV).setY(homeV.y + bob + up).lerp(showV, e);
     r.position.copy(tmp);
+    // a gentle squash-and-rise "breath" when the opening begins
+    const kick = Math.sin(Math.min(1, o * 3) * Math.PI) * 0.06 * (reducedMotion ? 0 : 1);
+    r.scale.setScalar(size * (1 + kick + e * 0.12));
 
-    const hoverBoost = active && !disabled ? 0.14 : 0;
-    const targetScale = size * (1 + hoverBoost + e * 0.35);
-    r.scale.setScalar(THREE.MathUtils.lerp(r.scale.x || size, targetScale, Math.min(1, dt * 8)));
-
-    // idle sway; face the camera while opening
-    const idleY = reducedMotion ? 0.3 : Math.sin(t * 0.45 + phase) * 0.6;
-    s.rotation.y = THREE.MathUtils.lerp(s.rotation.y, opening ? 0 : idleY + (active ? 0.4 : 0), Math.min(1, dt * 3));
-    s.rotation.x = THREE.MathUtils.lerp(s.rotation.x, opening ? 0.35 * (1 - e) + 0.25 : 0.12, Math.min(1, dt * 3));
+    // idle sway; turns toward her hand when hovered; squares up to the camera while opening
+    const idleY = reducedMotion ? 0 : Math.sin(t * 0.45 + phase) * 0.35;
+    s.rotation.y = THREE.MathUtils.lerp(s.rotation.y, opening ? face : restFacing + idleY * (1 - h), Math.min(1, dt * 3));
+    s.rotation.x = tiltX.step(opening ? 0.18 * (1 - e) + 0.12 : 0.1 + aim.current.y * 0.22 * h, 7, dt);
+    s.rotation.z = tiltZ.step(opening ? 0 : -aim.current.x * 0.22 * h, 7, dt);
 
     if (glow.current) {
       const m = glow.current.material as THREE.SpriteMaterial;
-      const base = opened ? 0.18 : 0.34;
-      const target = base + (active && !disabled ? 0.3 : 0) + THREE.MathUtils.smoothstep(o, 0.5, 1) * 1.2;
+      const base = opened ? 0.08 : 0.14;
+      const target = base + h * 0.22 + THREE.MathUtils.smoothstep(o, 0.45, 1) * 1.1;
       m.opacity += (target - m.opacity) * Math.min(1, dt * 5);
-      glow.current.scale.setScalar(1.7 + (active ? 0.5 : 0) + THREE.MathUtils.smoothstep(o, 0.55, 1) * 4);
+      glow.current.scale.setScalar(1.5 + h * 0.4 + THREE.MathUtils.smoothstep(o, 0.5, 1) * 4);
+    }
+
+    // contact shadow: tighter and darker close to the floor, soft and faint as it rises
+    if (shadow.current) {
+      const height = Math.max(0, r.position.y - floorY);
+      shadow.current.position.set(r.position.x, floorY + 0.005, r.position.z);
+      shadow.current.scale.setScalar(size * (0.9 + height * 0.35));
+      (shadow.current.material as THREE.MeshBasicMaterial).opacity = (0.7 / (1 + height * 0.9)) * (1 - e * 0.6);
+    }
+
+    // labels of gifts on the far side of the ring step back
+    if (label.current) {
+      toCam.copy(state.camera.position).setY(0).normalize();
+      const front = toCam.dot(tmp.set(Math.sin(facing), 0, Math.cos(facing)));
+      const behind = front < -0.35;
+      label.current.style.opacity = String(behind && !active ? 0 : THREE.MathUtils.clamp(0.35 + (front + 0.3) * 0.9, 0.25, 1));
+      label.current.classList.toggle('is-behind', behind);
     }
 
     if (opening && o >= 1 && !notified.current) {
@@ -334,32 +506,51 @@ export function Gift3D({
   const number = String(index + 1).padStart(2, '0');
 
   return (
-    <group ref={root} position={home}>
-      <Glow ref={glow} color={gift.tint} size={1.7} opacity={0.3} />
-      <group
-        ref={spin}
-        onClick={click}
-        onPointerOver={(e) => {
-          e.stopPropagation();
-          if (!disabled) setHovered(true);
-        }}
-        onPointerOut={() => setHovered(false)}
-      >
-        <GiftBody gift={gift} progress={progress} glass={glass} />
-        {/* generous invisible hit area — easier to tap on phones */}
-        <mesh>
-          <sphereGeometry args={[0.62, 8, 8]} />
-          <meshBasicMaterial transparent opacity={0} depthWrite={false} colorWrite={false} />
-        </mesh>
+    <>
+      <mesh ref={shadow} rotation-x={-Math.PI / 2} position={[home[0], floorY + 0.005, home[2]]} renderOrder={-1}>
+        <planeGeometry args={[1.3, 1.3]} />
+        <meshBasicMaterial map={getShadowTexture()} color="#000000" transparent opacity={0.6} depthWrite={false} />
+      </mesh>
+      <group ref={root} position={home}>
+        <Glow ref={glow} color={gift.tint} size={1.5} opacity={0.14} />
+        <group
+          ref={spin}
+          onClick={click}
+          onPointerOver={(e) => {
+            e.stopPropagation();
+            if (disabled) return;
+            setHovered(true);
+            if (hoverFx) sound.hover(gift.id);
+          }}
+          onPointerMove={(e) => {
+            if (!hoverFx || !root.current) return;
+            // where on the gift the pointer rests, -1..1 — it leans toward it
+            const local = root.current.worldToLocal(e.point.clone());
+            aim.current = { x: THREE.MathUtils.clamp(local.x / 0.5, -1, 1), y: THREE.MathUtils.clamp(local.y / 0.5, -1, 1) };
+          }}
+          onPointerOut={() => {
+            setHovered(false);
+            aim.current = { x: 0, y: 0 };
+            sound.hoverEnd(gift.id);
+          }}
+        >
+          <GiftBody gift={gift} progress={progress} hover={hover} glass={glass} />
+          {/* generous invisible hit area — easier to tap on phones */}
+          <mesh>
+            <sphereGeometry args={[0.6, 8, 8]} />
+            <meshBasicMaterial transparent opacity={0} depthWrite={false} colorWrite={false} />
+          </mesh>
+        </group>
+        {hoverFx && !reducedMotion && <HoverSparkles on={hover} />}
+        {!opening && (
+          <Html center position={[0, -0.7, 0]} style={{ pointerEvents: 'none' }} zIndexRange={[5, 0]}>
+            <div ref={label} className={`gift-label${active ? ' is-active' : ''}${opened ? ' is-opened' : ''}${quiet ? ' is-quiet' : ''}`}>
+              <span className="gift-label__num">{opened ? '✓' : number}</span>
+              <span className="gift-label__title">{gift.title}</span>
+            </div>
+          </Html>
+        )}
       </group>
-      {!opening && (
-        <Html center position={[0, -0.72, 0]} style={{ pointerEvents: 'none' }} zIndexRange={[5, 0]}>
-          <div className={`gift-label${active ? ' is-active' : ''}${opened ? ' is-opened' : ''}${quiet ? ' is-quiet' : ''}`}>
-            <span className="gift-label__num">{opened ? '✓' : number}</span>
-            <span className="gift-label__title">{gift.title}</span>
-          </div>
-        </Html>
-      )}
-    </group>
+    </>
   );
 }

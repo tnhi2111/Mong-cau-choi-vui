@@ -15,6 +15,7 @@ export function MusicToggle() {
   }, []);
 
   const label = hasMusic === false ? 'Sound' : birthdayConfig.music.label;
+  const text = on ? (hasMusic === false ? 'Sound on' : 'On') : hasMusic === false ? 'Sound off' : `${label} ♫`;
 
   return (
     <button
@@ -22,14 +23,14 @@ export function MusicToggle() {
       className={`music${on ? ' is-on' : ''}`}
       onClick={() => void sound.toggle()}
       aria-pressed={on}
-      aria-label={on ? 'Turn sound off' : label}
+      aria-label={on ? 'Turn sound off' : hasMusic === false ? 'Turn sound on' : label}
     >
       <span className="music__bars" aria-hidden="true">
         <i />
         <i />
         <i />
       </span>
-      <span className="music__label">{on ? 'On' : `${label} ♫`}</span>
+      <span className="music__label">{text}</span>
     </button>
   );
 }

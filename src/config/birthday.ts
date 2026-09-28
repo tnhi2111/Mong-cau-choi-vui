@@ -114,6 +114,18 @@ export const birthdayConfig = {
     volume: 0.45,
     label: 'Turn on music',
   },
+
+  sound: {
+    /**
+     * Tiny synthesized effects: a glassy "tink" when hovering a gift or the heart,
+     * chimes on taps, a soft thump under the heartbeat. They start only after her
+     * first touch (browsers forbid sound before that) and are always very quiet.
+     * Set to false to keep the site silent unless she turns the music on.
+     */
+    effects: true,
+    /** 0..1 master volume for those effects. */
+    volume: 0.8,
+  },
 } as const;
 
 export type BirthdayConfig = typeof birthdayConfig;

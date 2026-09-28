@@ -33,7 +33,10 @@ const exe = ['/opt/pw-browsers/chromium-1194/chrome-linux/chrome', process.env.C
 
 const browser = await chromium.launch({
   executablePath: exe,
-  args: ['--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist', '--autoplay-policy=user-gesture-required'],
+  args: [
+    ...(args.gpu ? ['--enable-gpu', '--ignore-gpu-blocklist'] : ['--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist']),
+    '--autoplay-policy=user-gesture-required',
+  ],
 });
 const context = await browser.newContext({
   viewport: { width: w, height: h },

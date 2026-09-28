@@ -1,34 +1,99 @@
 import * as THREE from 'three';
-import { ParametricGeometry } from 'three/addons/geometries/ParametricGeometry.js';
 
 const cache = new Map<string, THREE.BufferGeometry>();
 
+/*
+ * The heart surface is the implicit "Taubin heart":
+ *   F(x, y, z) = (x² + 9/4·y² + z² − 1)³ − x²·z³ − 9/80·y²·z³ = 0
+ * (z is up, y is depth). Unlike a parametric heart it has no pole on its face,
+ * so there is no seam down the middle and it looks right from every side.
+ *
+ * We shrink-wrap a UV sphere onto it: every sphere vertex is pushed along its
+ * direction until it meets the surface, and the normal comes straight from the
+ * gradient of F — perfectly smooth, including across the sphere's UV seam.
+ */
+const DEPTH = 9 / 4;
+
+/*
+ * We use the equivalent form G = A − z·∛(x² + 9/80·y²) with A = x² + 9/4·y² + z² − 1
+ * (G = 0 ⇔ F = 0, since the cube root is monotonic). F's gradient vanishes on the
+ * whole equator (where A = 0 and z = 0) and would leave a visible crease there;
+ * G's gradient is only singular on the vertical axis — the cleft and the tip.
+ */
+function field(x: number, y: number, z: number): number {
+  return x * x + DEPTH * y * y + z * z - 1 - z * Math.cbrt(x * x + (9 / 80) * y * y);
+}
+
+function gradient(x: number, y: number, z: number, out: THREE.Vector3): THREE.Vector3 {
+  const q = x * x + (9 / 80) * y * y;
+  if (q < 1e-12) return out.set(0, 0, 0);
+  const c = Math.cbrt(q);
+  const k = z / (3 * c * c);
+  return out.set(2 * x - k * 2 * x, 2 * DEPTH * y - k * (9 / 40) * y, 2 * z - c);
+}
+
+/** Distance from the centre to the (outermost) surface along a unit direction. */
+function radiusAlong(dx: number, dy: number, dz: number): number {
+  const steps = 96;
+  const max = 1.6;
+  let inside = 0;
+  for (let i = 1; i <= steps; i++) {
+    const r = (i / steps) * max;
+    if (field(dx * r, dy * r, dz * r) <= 0) inside = r;
+  }
+  let lo = inside;
+  let hi = inside + max / steps;
+  for (let i = 0; i < 28; i++) {
+    const mid = (lo + hi) / 2;
+    if (field(dx * mid, dy * mid, dz * mid) <= 0) lo = mid;
+    else hi = mid;
+  }
+  return (lo + hi) / 2;
+}
+
 /**
- * A smooth, puffy 3D heart from a parametric surface:
- *   x = sin u · (15 sin v − 4 sin 3v)
- *   y = sin u · (15 cos v − 5 cos 2v − 2 cos 3v − cos 4v)
- *   z = 8 cos u
- * Normalised to about 1.35 units tall, point facing down.
+ * A smooth, plump 3D heart about 1.6 units wide, centred on the origin,
+ * point facing down. `low` is for small instanced copies.
  */
 export function getHeartGeometry(detail: 'high' | 'low' = 'high'): THREE.BufferGeometry {
   const key = `heart-${detail}`;
   const hit = cache.get(key);
   if (hit) return hit;
 
-  const k = 1 / 23.5;
-  const depth = 0.72;
-  const fn = (u: number, v: number, target: THREE.Vector3) => {
-    const U = u * Math.PI;
-    const V = v * Math.PI * 2;
-    const su = Math.sin(U);
-    const x = su * (15 * Math.sin(V) - 4 * Math.sin(3 * V));
-    const y = su * (15 * Math.cos(V) - 5 * Math.cos(2 * V) - 2 * Math.cos(3 * V) - Math.cos(4 * V));
-    const z = 8 * Math.cos(U) * depth;
-    target.set(x * k, (y + 3.1) * k, z * k);
-  };
   const hi = detail === 'high';
-  const geo = new ParametricGeometry(fn, hi ? 72 : 24, hi ? 96 : 32);
-  geo.computeVertexNormals();
+  const geo = new THREE.SphereGeometry(1, hi ? 176 : 36, hi ? 132 : 28);
+  const pos = geo.attributes.position as THREE.BufferAttribute;
+  const nor = geo.attributes.normal as THREE.BufferAttribute;
+  const g = new THREE.Vector3();
+  const d = new THREE.Vector3();
+
+  for (let i = 0; i < pos.count; i++) {
+    // three: X right, Y up, Z toward viewer  →  Taubin: x = X, z = Y, y = Z
+    d.fromBufferAttribute(pos, i).normalize();
+    const r = radiusAlong(d.x, d.z, d.y);
+    const X = d.x * r;
+    const Y = d.y * r;
+    const Z = d.z * r;
+    pos.setXYZ(i, X, Y, Z);
+    gradient(X, Z, Y, g);
+    // the cleft and the tip are singular points of F — fall back to the ray direction there
+    if (g.lengthSq() < 1e-12) nor.setXYZ(i, d.x, d.y, d.z);
+    else {
+      g.set(g.x, g.z, g.y).normalize();
+      nor.setXYZ(i, g.x, g.y, g.z);
+    }
+  }
+
+  geo.computeBoundingBox();
+  const box = geo.boundingBox!;
+  const scale = 1.6 / (box.max.x - box.min.x);
+  const cy = (box.max.y + box.min.y) / 2;
+  geo.translate(0, -cy, 0);
+  geo.scale(scale, scale, scale);
+  geo.computeBoundingBox();
+  geo.computeBoundingSphere();
+  pos.needsUpdate = true;
+  nor.needsUpdate = true;
   cache.set(key, geo);
   return geo;
 }

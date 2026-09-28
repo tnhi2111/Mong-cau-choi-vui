@@ -15,6 +15,7 @@ import { RoomUI } from './components/experience/RoomUI';
 import { FallbackScene } from './components/experience/FallbackScene';
 import { MusicToggle } from './components/ui/MusicToggle';
 import { ErrorBoundary } from './components/ui/ErrorBoundary';
+import { CursorLayer } from './components/ui/CursorLayer';
 
 /**
  * Heavy pieces load only when needed. If the site was redeployed while the page
@@ -86,7 +87,15 @@ export default function App() {
   }, [saved.unlocked]);
 
   useEffect(() => {
-    saveProgress({ unlocked: stage !== 'intro' && stage !== 'gate', opened, finaleSeen: saved.finaleSeen });
+    const save = () => saveProgress({ unlocked: stage !== 'intro' && stage !== 'gate', opened, finaleSeen: saved.finaleSeen });
+    save();
+    // refresh the timestamp whenever she steps away, so a long read never counts as "old"
+    window.addEventListener('pagehide', save);
+    document.addEventListener('visibilitychange', save);
+    return () => {
+      window.removeEventListener('pagehide', save);
+      document.removeEventListener('visibilitychange', save);
+    };
   }, [stage, opened, saved.finaleSeen]);
 
   /** Fade out → swap stage → fade in. */
@@ -116,6 +125,7 @@ export default function App() {
       if (t >= TAPS_NEEDED) return t;
       const next = t + 1;
       sound.chime(next * 2 - 2);
+      setTimeout(() => sound.thump(0.6 + next * 0.2), 110);
       if (next === TAPS_NEEDED) {
         sound.flourish();
         setTimeout(() => setStage('gate'), reducedMotion ? 1200 : 2600);
@@ -144,8 +154,11 @@ export default function App() {
     [openingId, activeId],
   );
 
+  const revealing = useRef<string | null>(null);
   const giftOpened = useCallback(
     async (id: string) => {
+      if (revealing.current === id) return; // the 3D scene and the safety net may both call this
+      revealing.current = id;
       sound.chime(5, 0.06);
       setVeil('light');
       await wait(reducedMotion ? 150 : 520);
@@ -155,8 +168,16 @@ export default function App() {
     [reducedMotion],
   );
 
+  // Safety net: if the 3D opening stalls (very slow device, context loss), open the memory anyway.
+  useEffect(() => {
+    if (!openingId || activeId) return;
+    const id = setTimeout(() => void giftOpened(openingId), reducedMotion ? 2500 : 3500);
+    return () => clearTimeout(id);
+  }, [openingId, activeId, giftOpened, reducedMotion]);
+
   const closeGift = useCallback(() => {
     const id = activeId;
+    revealing.current = null;
     setActiveId(null);
     setOpeningId(null);
     if (id) {
@@ -243,6 +264,8 @@ export default function App() {
           <FallbackScene {...sceneProps} />
         )}
       </div>
+
+      <CursorLayer reducedMotion={reducedMotion} />
 
       <main className="stage" data-stage={stage} inert={overlayOpen}>
         {stage === 'intro' && (
