@@ -65,7 +65,7 @@ nên điện thoại quét được dễ dàng — `npm run qa:qr` tự kiểm t
 Website tự động được build và đăng mỗi khi có thay đổi trên nhánh `main`
 (workflow `.github/workflows/deploy.yml`). Địa chỉ:
 
-**https://tnhi2111.github.io/Mong-cau-choi-vui/** — QR: **https://tnhi2111.github.io/Mong-cau-choi-vui/qr.html**
+**https://tnhi2111.github.io/Mong-chi-choi-vui/** — QR: **https://tnhi2111.github.io/Mong-chi-choi-vui/qr.html**
 
 Chỉ cần bật **một lần**: repo → **Settings → Pages → Build and deployment → Source: GitHub Actions**.
 Sau đó vào tab **Actions → Deploy to GitHub Pages → Run workflow** (hoặc push một thay đổi bất kỳ lên `main`).
