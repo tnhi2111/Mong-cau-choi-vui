@@ -88,6 +88,7 @@ export function getHeartGeometry(detail: 'high' | 'low' = 'high'): THREE.BufferG
   const box = geo.boundingBox!;
   const scale = 1.6 / (box.max.x - box.min.x);
   const cy = (box.max.y + box.min.y) / 2;
+  if (hi) norm = { scale, cy };
   geo.translate(0, -cy, 0);
   geo.scale(scale, scale, scale);
   geo.computeBoundingBox();
@@ -96,6 +97,36 @@ export function getHeartGeometry(detail: 'high' | 'low' = 'high'): THREE.BufferG
   nor.needsUpdate = true;
   cache.set(key, geo);
   return geo;
+}
+
+/** How the raw surface is centred and scaled to match getHeartGeometry('high'). */
+let norm: { scale: number; cy: number } | null = null;
+
+/**
+ * Points filling the same heart as getHeartGeometry: most of them in a thin
+ * shell just under the surface (so the silhouette reads crisply from any angle),
+ * the rest spread through the volume for depth. Returned in the geometry's space.
+ */
+export function sampleHeartPoints(count: number, shell = 0.62): Float32Array {
+  if (!norm) getHeartGeometry('high');
+  const { scale, cy } = norm!;
+  const out = new Float32Array(count * 3);
+  const d = new THREE.Vector3();
+  for (let i = 0; i < count; i++) {
+    d.randomDirection();
+    const R = radiusAlong(d.x, d.z, d.y);
+    const k = Math.random() < shell ? 1 - Math.pow(Math.random(), 2) * 0.1 : Math.cbrt(Math.random()) * 0.95;
+    const r = R * k;
+    out[i * 3] = d.x * r * scale;
+    out[i * 3 + 1] = (d.y * r - cy) * scale;
+    out[i * 3 + 2] = d.z * r * scale;
+  }
+  return out;
+}
+
+/** Lowest point of the normalised heart (its tip), in geometry space. */
+export function heartTipY(): number {
+  return getHeartGeometry('high').boundingBox!.min.y;
 }
 
 /**

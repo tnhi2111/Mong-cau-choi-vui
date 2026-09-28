@@ -51,7 +51,8 @@ const problems = [];
 const log = (...m) => console.log('•', ...m);
 page.on('console', (msg) => {
   const t = msg.text();
-  if (msg.type() === 'error') problems.push(`console.error: ${t}`);
+  // headless Chrome has no real audio device; the app already goes silent when that happens
+  if (msg.type() === 'error' && !/AudioContext encountered an error from the audio device/.test(t)) problems.push(`console.error: ${t}`);
   else if (msg.type() === 'warning' && !/GPU stall|GL Driver Message|swiftshader|Automatic fallback to software WebGL/i.test(t))
     console.log('  [warn]', t.slice(0, 200));
 });

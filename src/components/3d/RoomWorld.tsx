@@ -26,6 +26,7 @@ interface Props {
   particleFactor: number;
   portrait: boolean;
   hoverFx: boolean;
+  heartPoints: number;
 }
 
 const FLOOR_Y = -0.95;
@@ -99,6 +100,7 @@ export function RoomWorld({
   particleFactor,
   portrait,
   hoverFx,
+  heartPoints,
 }: Props) {
   // on a tall phone screen the ring stretches in depth, which the raised camera turns into height
   const rx = portrait ? 1.45 : 3.1;
@@ -199,6 +201,7 @@ export function RoomWorld({
           glass={glass}
           scale={portrait ? 0.62 : 0.78}
           halo={allOpened ? 1.4 : 1}
+          particles={heartPoints}
         />
       </group>
       {gifts.map((g, i) => (

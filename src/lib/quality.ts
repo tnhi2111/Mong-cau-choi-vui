@@ -33,10 +33,10 @@ export function initialTier(): Tier {
   return 'high';
 }
 
-export const tierSettings: Record<Tier, { dpr: [number, number]; particles: number; transmission: boolean }> = {
-  high: { dpr: [1, 2], particles: 1, transmission: true },
-  medium: { dpr: [1, 1.5], particles: 0.6, transmission: false },
-  low: { dpr: [0.75, 1], particles: 0.3, transmission: false },
+export const tierSettings: Record<Tier, { dpr: [number, number]; particles: number; transmission: boolean; heartPoints: number }> = {
+  high: { dpr: [1, 2], particles: 1, transmission: true, heartPoints: 9000 },
+  medium: { dpr: [1, 1.5], particles: 0.6, transmission: false, heartPoints: 5500 },
+  low: { dpr: [0.75, 1], particles: 0.3, transmission: false, heartPoints: 2800 },
 };
 
 export function lowerTier(t: Tier): Tier {

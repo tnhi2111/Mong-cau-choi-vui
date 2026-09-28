@@ -4,6 +4,7 @@ import * as THREE from 'three';
 import { getHeartGeometry } from './heartShape';
 import { createHeartMaterial } from './heartMaterial';
 import { Glow } from './Glow';
+import { ParticleHeart, type ParticleHeartHandle } from './ParticleHeart';
 import type { OrbitInput } from '../../hooks/usePointerOrbit';
 import { sound } from '../../lib/audio';
 
@@ -25,6 +26,8 @@ interface Props {
   innerLight?: number;
   /** Lets the viewer turn the heart in their hands (drag / inertia). */
   orbit?: OrbitInput;
+  /** > 0: draw the heart as this many points of light instead of a glossy solid. */
+  particles?: number;
 }
 
 const g = (t: number, c: number, w: number) => Math.exp(-(((t - c) / w) ** 2));
@@ -61,11 +64,16 @@ export function Heart3D({
   lowDetail = false,
   innerLight = 1,
   orbit,
+  particles = 0,
 }: Props) {
   const group = useRef<THREE.Group>(null);
   const tilt = useRef<THREE.Group>(null);
   const spin = useRef<THREE.Group>(null);
-  const mesh = useRef<THREE.Mesh>(null);
+  const mesh = useRef<THREE.Group>(null);
+  const cloud = useRef<ParticleHeartHandle>(null);
+  const hoverLocal = useRef(new THREE.Vector3(0, 0, 9));
+  const touch = useRef(0);
+  const pBeat = useRef(0);
   const glow = useRef<THREE.Sprite>(null);
   const inner = useRef<THREE.PointLight>(null);
   const [hovered, setHovered] = useState(false);
@@ -73,7 +81,11 @@ export function Heart3D({
   const hover = useRef(0);
   const s = useRef(scale * 0.6);
   const geometry = useMemo(() => getHeartGeometry(lowDetail ? 'low' : 'high'), [lowDetail]);
+  const asLight = particles > 0;
   const { material, uniforms } = useMemo(() => createHeartMaterial(glass), [glass]);
+  // the point-of-light heart still needs a surface to touch: an invisible copy of the solid
+  const hitMaterial = useMemo(() => new THREE.MeshBasicMaterial({ colorWrite: false, depthWrite: false }), []);
+  useEffect(() => () => hitMaterial.dispose(), [hitMaterial]);
   const clock = useRef(0);
 
   useEffect(() => () => material.dispose(), [material]);
@@ -133,13 +145,21 @@ export function Heart3D({
     spin.current.rotation.y = yaw;
     tilt.current.rotation.x = pitch;
 
+    if (cloud.current) {
+      touch.current = Math.max(0, touch.current - dt * 1.6);
+      const expand = Math.max(0, b.s) / 0.075;
+      pBeat.current += (expand * beatAmt - pBeat.current) * (1 - Math.exp(-dt * 14));
+      const glowAmt = THREE.MathUtils.clamp(0.35 + charge * 0.35 + b.light * 0.45 + h * 0.15, 0, 1.4);
+      cloud.current.set(pBeat.current, glowAmt, hoverLocal.current, Math.max(h, touch.current));
+    }
+
     const light = 0.1 + charge * 0.28 + b.light * 0.9 + h * 0.1;
     const kk = 1 - Math.exp(-dt * 8);
     uniforms.uGlow.value += (light * Math.min(1, 0.4 + innerLight) * 0.55 - uniforms.uGlow.value) * kk;
     uniforms.uRim.value += (0.22 + charge * 0.1 + h * 0.3 + b.light * 0.2 - uniforms.uRim.value) * kk;
     if (glow.current) {
       const m = glow.current.material as THREE.SpriteMaterial;
-      m.opacity += (0.1 + charge * 0.12 + b.light * 0.3 + h * 0.05 - m.opacity) * kk;
+      m.opacity += ((asLight ? 0.07 : 0.1) + charge * 0.12 + b.light * 0.3 + h * 0.05 - m.opacity) * kk;
       glow.current.scale.setScalar((2.8 + charge * 0.8 + b.light * 1.1) * halo);
     }
     if (inner.current) inner.current.intensity = (1.2 + light * 5) * innerLight;
@@ -157,21 +177,33 @@ export function Heart3D({
       <Glow ref={glow} color="#ff9fb4" size={2.8} opacity={0.12} />
       <group ref={tilt}>
         <group ref={spin}>
-          <mesh
-            ref={mesh}
-            geometry={geometry}
-            material={material}
-            onClick={handle}
-            onPointerOver={(e) => {
-              e.stopPropagation();
-              setHovered(true);
-              if (interactive && fineHover()) sound.hover('heart');
-            }}
-            onPointerOut={() => {
-              setHovered(false);
-              sound.hoverEnd('heart');
-            }}
-          />
+          <group ref={mesh}>
+            <mesh
+              geometry={geometry}
+              material={asLight ? hitMaterial : material}
+              onClick={handle}
+              onPointerOver={(e) => {
+                e.stopPropagation();
+                setHovered(true);
+                if (interactive && fineHover()) sound.hover('heart');
+              }}
+              onPointerMove={(e) => {
+                if (asLight && mesh.current) hoverLocal.current.copy(mesh.current.worldToLocal(e.point.clone()));
+              }}
+              onPointerDown={(e) => {
+                // on touch there is no hover: let the finger part the light for a moment
+                if (asLight && interactive && mesh.current) {
+                  hoverLocal.current.copy(mesh.current.worldToLocal(e.point.clone()));
+                  touch.current = 1;
+                }
+              }}
+              onPointerOut={() => {
+                setHovered(false);
+                sound.hoverEnd('heart');
+              }}
+            />
+            {asLight && <ParticleHeart ref={cloud} count={particles} reducedMotion={reducedMotion} />}
+          </group>
         </group>
       </group>
       <pointLight ref={inner} color="#ff7d97" intensity={2} distance={3.2} decay={2} position={[0, 0, 0]} />

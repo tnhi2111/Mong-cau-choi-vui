@@ -40,7 +40,8 @@ const context = await browser.newContext({
 const page = await context.newPage();
 const problems = [];
 page.on('console', (m) => {
-  if (m.type() === 'error') problems.push(`console.error: ${m.text()}`);
+  // headless Chrome has no real audio device; the app already goes silent when that happens
+  if (m.type() === 'error' && !/AudioContext encountered an error from the audio device/.test(m.text())) problems.push(`console.error: ${m.text()}`);
 });
 page.on('pageerror', (e) => problems.push(`pageerror: ${e.message}`));
 

@@ -8,6 +8,7 @@ import { tierSettings, lowerTier, type Tier } from '../../lib/quality';
 import { Lights, type Mood } from './Lights';
 import { Atmosphere } from './Atmosphere';
 import { Prewarm } from './Prewarm';
+import { birthdayConfig } from '../../config/birthday';
 import { IntroWorld } from './IntroWorld';
 import { RoomWorld } from './RoomWorld';
 import { FinalWorld } from './FinalWorld';
@@ -43,6 +44,8 @@ export default function Scene3D(props: SceneProps) {
   const inIntro = stage === 'intro' || stage === 'gate' || stage === 'welcome';
   const mood: Mood = inIntro ? 'intro' : stage === 'room' ? 'room' : 'final';
   // a light that follows the mouse only makes sense with a real mouse
+  // 0 → the glossy solid heart; otherwise the number of points of light it is made of
+  const heartPoints = birthdayConfig.heart.style === 'particles' ? q.heartPoints : 0;
   const finePointer = typeof matchMedia !== 'undefined' && matchMedia('(hover: hover) and (pointer: fine)').matches;
 
   return (
@@ -52,12 +55,12 @@ export default function Scene3D(props: SceneProps) {
       frameloop={paused ? 'demand' : 'always'}
       camera={{ position: [0, 0, 7], fov: 40, near: 0.1, far: 60 }}
       gl={{ antialias: tier !== 'low', alpha: true, powerPreference: 'high-performance' }}
-      onCreated={({ gl }) => {
+      onCreated={({ gl, scene }) => {
         gl.toneMapping = THREE.ACESFilmicToneMapping;
         gl.toneMappingExposure = 1.0;
         // QA hook: lets the Playwright scripts read renderer stats
         if (import.meta.env.DEV || new URLSearchParams(location.search).has('debug')) {
-          (window as unknown as { __gl?: THREE.WebGLRenderer }).__gl = gl;
+          Object.assign(window, { __gl: gl, __scene: scene });
         }
       }}
       aria-hidden="true"
@@ -66,8 +69,8 @@ export default function Scene3D(props: SceneProps) {
       <Suspense fallback={null}>
         <Lights mood={mood} cursorLight={finePointer && tier !== 'low' && !reducedMotion} />
       </Suspense>
-      <Atmosphere mood={mood} bokeh={tier === 'low' ? 6 : 14} reducedMotion={reducedMotion} />
-      {inIntro && <Prewarm gifts={props.gifts} glass={q.transmission} />}
+      <Atmosphere mood={mood} bokeh={tier === 'low' ? 6 : 14} stars={tier === 'low' ? 300 : 700} reducedMotion={reducedMotion} />
+      {stage === 'welcome' && <Prewarm gifts={props.gifts} glass={q.transmission} solidHeart={heartPoints === 0} />}
       {inIntro && (
         <IntroWorld
           stage={stage}
@@ -79,6 +82,7 @@ export default function Scene3D(props: SceneProps) {
           glass={q.transmission}
           particleFactor={q.particles}
           portrait={portrait}
+          heartPoints={heartPoints}
         />
       )}
       {stage === 'room' && (
@@ -98,6 +102,7 @@ export default function Scene3D(props: SceneProps) {
           particleFactor={q.particles}
           portrait={portrait}
           hoverFx={finePointer}
+          heartPoints={Math.round(heartPoints * 0.75)}
         />
       )}
       {stage === 'final' && (
@@ -109,6 +114,7 @@ export default function Scene3D(props: SceneProps) {
           glass={q.transmission}
           particleFactor={q.particles}
           portrait={portrait}
+          heartPoints={Math.round(heartPoints * 0.7)}
         />
       )}
     </Canvas>

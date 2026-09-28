@@ -115,6 +115,17 @@ export const birthdayConfig = {
     label: 'Turn on music',
   },
 
+  heart: {
+    /**
+     * 'particles' — a heart made of thousands of points of light, with light
+     *               dripping into a slowly turning ring of words beneath it.
+     * 'glass'     — a glossy, lacquered solid heart.
+     */
+    style: 'particles' as 'particles' | 'glass',
+    /** Words that float around the ring under the heart ({name} / {sender} work here too). */
+    words: ['Happy Birthday', '{name}', 'I love you', 'Always', 'Forever', 'Thương em', 'Mãi bên nhau', '♥'],
+  },
+
   sound: {
     /**
      * Tiny synthesized effects: a glassy "tink" when hovering a gift or the heart,

@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
+import { useShader } from './useShader';
 import type { FinalePhase } from '../../types';
 import { getHeartGeometry, randomPointInHeart, heartCurvePoint } from './heartShape';
 import { Heart3D } from './Heart3D';
@@ -16,6 +17,7 @@ interface Props {
   glass: boolean;
   particleFactor: number;
   portrait: boolean;
+  heartPoints: number;
 }
 
 const HEART_SCALE = 1.7;
@@ -181,17 +183,9 @@ function HeartDust({ count, clock, t, glow }: { count: number; clock: { current:
     uniforms.uGlow.value += (glow - uniforms.uGlow.value) * Math.min(1, dt * 2);
   });
 
+  const dustMat = useShader(dustVertex, dustFragment, uniforms);
   return (
-    <points geometry={geometry} frustumCulled={false}>
-      <shaderMaterial
-        vertexShader={dustVertex}
-        fragmentShader={dustFragment}
-        uniforms={uniforms}
-        transparent
-        depthWrite={false}
-        blending={THREE.AdditiveBlending}
-      />
-    </points>
+    <points geometry={geometry} frustumCulled={false} material={dustMat} />
   );
 }
 
@@ -293,7 +287,7 @@ function MemoryFragments({
 }
 
 /** Stage 5: the finale. */
-export function FinalWorld({ phase, photos, onFormed, reducedMotion, glass, particleFactor, portrait }: Props) {
+export function FinalWorld({ phase, photos, onFormed, reducedMotion, glass, particleFactor, portrait, heartPoints }: Props) {
   const clock = useRef(0);
   const formed = useRef(false);
   const [burst, setBurst] = useState(0);
@@ -360,6 +354,7 @@ export function FinalWorld({ phase, photos, onFormed, reducedMotion, glass, part
             scale={0.95}
             halo={1.3}
             innerLight={0.35}
+            particles={heartPoints}
           />
         </group>
         <MemoryFragments urls={photos} clock={clock} t={t} ringX={portrait ? 1.3 : 2.9} ringY={portrait ? 2.0 : 1.3} />

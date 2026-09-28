@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { useFrame, type ThreeEvent } from '@react-three/fiber';
 import { Html, RoundedBox } from '@react-three/drei';
 import * as THREE from 'three';
+import { useShader } from './useShader';
 import type { Gift } from '../../data/gifts';
 import { Glow } from './Glow';
 import { getHeartGeometry } from './heartShape';
@@ -60,13 +61,15 @@ function starGeometry(): THREE.ExtrudeGeometry {
   return g;
 }
 
-function flapGeometry(): THREE.ShapeGeometry {
+function flapGeometry(): THREE.ExtrudeGeometry {
+  // a thin card rather than a flat face, so it looks right from both sides
+  // without a double-sided material (which would need a shader of its own)
   const s = new THREE.Shape();
   s.moveTo(-0.4, 0);
   s.lineTo(0.4, 0);
   s.lineTo(0, -0.3);
   s.closePath();
-  return new THREE.ShapeGeometry(s);
+  return new THREE.ExtrudeGeometry(s, { depth: 0.006, bevelEnabled: false });
 }
 
 /**
@@ -81,10 +84,46 @@ export type GiftMaterials = {
   seal?: THREE.MeshPhysicalMaterial;
 };
 
-export function createGiftMaterials(gift: Pick<Gift, 'shape' | 'tint'>, glass: boolean): GiftMaterials {
+/**
+ * Every opaque gift surface switches on the same shader features (sheen,
+ * clearcoat, a bump map, emissive) and differs only in their amounts. three.js
+ * builds one shader program per feature set, so the whole room compiles one
+ * opaque program instead of six — the difference between a smooth entrance
+ * and a multi-second freeze on Windows.
+ */
+function surface(p: {
+  color: THREE.ColorRepresentation;
+  roughness: number;
+  metalness?: number;
+  sheen?: number;
+  sheenRoughness?: number;
+  sheenColor?: THREE.ColorRepresentation;
+  clearcoat?: number;
+  clearcoatRoughness?: number;
+  bumpScale?: number;
+  emissive?: THREE.Color;
+}): THREE.MeshPhysicalMaterial {
+  return new THREE.MeshPhysicalMaterial({
+    color: p.color,
+    roughness: p.roughness,
+    metalness: p.metalness ?? 0,
+    sheen: Math.max(0.02, p.sheen ?? 0),
+    sheenRoughness: p.sheenRoughness ?? 0.6,
+    sheenColor: new THREE.Color(p.sheenColor ?? '#ffffff'),
+    clearcoat: Math.max(0.02, p.clearcoat ?? 0),
+    clearcoatRoughness: p.clearcoatRoughness ?? 0.4,
+    bumpMap: getPaperTexture(),
+    bumpScale: p.bumpScale ?? 0.02,
+    emissive: p.emissive ?? new THREE.Color('#000000'),
+    emissiveIntensity: 0,
+  });
+}
+
+// `_glass` is kept for callers; real refraction (transmission) is no longer used for gifts:
+// it forced a second render of the room every frame and a second copy of every shader.
+export function createGiftMaterials(gift: Pick<Gift, 'shape' | 'tint'>, _glass?: boolean): GiftMaterials {
   const tint = new THREE.Color(gift.tint);
-  const paperTex = getPaperTexture();
-  const glassShell = (thickness: number) =>
+  const glassShell = () =>
     new THREE.MeshPhysicalMaterial({
       color: tint.clone().lerp(new THREE.Color('#ffffff'), 0.35),
       roughness: 0.05,
@@ -94,75 +133,55 @@ export function createGiftMaterials(gift: Pick<Gift, 'shape' | 'tint'>, glass: b
       clearcoatRoughness: 0.03,
       iridescence: 0.25,
       iridescenceIOR: 1.3,
-      transmission: glass ? 1 : 0,
-      thickness,
-      attenuationColor: tint,
-      attenuationDistance: 1.2,
-      transparent: !glass,
-      opacity: glass ? 1 : 0.32,
-      depthWrite: glass,
+      transparent: true,
+      opacity: 0.34,
+      depthWrite: false,
       specularIntensity: 1,
-      envMapIntensity: 1.3,
+      envMapIntensity: 1.4,
     });
   switch (gift.shape) {
     case 'box': {
-      const main = new THREE.MeshPhysicalMaterial({
+      const main = surface({
         color: tint,
         roughness: 0.62,
         sheen: 0.55,
         sheenRoughness: 0.7,
-        sheenColor: new THREE.Color('#fff1ee'),
+        sheenColor: '#fff1ee',
         clearcoat: 0.1,
         clearcoatRoughness: 0.6,
-        bumpMap: paperTex,
         bumpScale: 1.2,
         emissive: tint,
-        emissiveIntensity: 0,
       });
-      const ribbon = new THREE.MeshPhysicalMaterial({
+      const ribbon = surface({
         color: '#9a2745',
         roughness: 0.32,
         sheen: 1,
         sheenRoughness: 0.28,
-        sheenColor: new THREE.Color('#ffb9c9'),
+        sheenColor: '#ffb9c9',
         clearcoat: 0.3,
         clearcoatRoughness: 0.25,
       });
       return { main, ribbon };
     }
     case 'capsule':
-      return { main: glassShell(0.35) };
     case 'orb':
-      return { main: glassShell(0.8) };
+      return { main: glassShell() };
     case 'star': {
-      const main = new THREE.MeshPhysicalMaterial({
+      const main = surface({
         color: new THREE.Color('#f2c7ae').lerp(tint, 0.3),
         metalness: 0.92,
         roughness: 0.24,
         clearcoat: 0.5,
         clearcoatRoughness: 0.08,
-        iridescence: 0.12,
         emissive: tint,
-        emissiveIntensity: 0,
       });
       return { main };
     }
     case 'envelope': {
-      const main = new THREE.MeshPhysicalMaterial({
-        color: '#f3e6d8',
-        roughness: 0.82,
-        sheen: 0.3,
-        sheenRoughness: 0.9,
-        sheenColor: new THREE.Color('#ffffff'),
-        bumpMap: paperTex,
-        bumpScale: 0.8,
-        emissive: tint,
-        emissiveIntensity: 0,
-      });
-      const flap = main.clone();
-      flap.color = new THREE.Color('#ead9c7');
-      flap.side = THREE.DoubleSide;
-      const seal = new THREE.MeshPhysicalMaterial({ color: '#7a1c33', roughness: 0.38, clearcoat: 0.6, clearcoatRoughness: 0.2 });
+      const card = { roughness: 0.82, sheen: 0.3, sheenRoughness: 0.9, bumpScale: 0.8, emissive: tint };
+      const main = surface({ color: '#f3e6d8', ...card });
+      const flap = surface({ color: '#ead9c7', ...card });
+      const seal = surface({ color: '#7a1c33', roughness: 0.38, clearcoat: 0.6, clearcoatRoughness: 0.2 });
       return { main, flap, seal };
     }
   }
@@ -365,10 +384,9 @@ function HoverSparkles({ on }: { on: Progress }) {
     uniforms.uOn.value = on.current;
     if (pts.current) pts.current.visible = on.current > 0.01;
   });
+  const sparkMat = useShader(sparkVertex, sparkFragment, uniforms);
   return (
-    <points ref={pts} geometry={geo} frustumCulled={false}>
-      <shaderMaterial vertexShader={sparkVertex} fragmentShader={sparkFragment} uniforms={uniforms} transparent depthWrite={false} blending={THREE.AdditiveBlending} />
-    </points>
+    <points ref={pts} geometry={geo} frustumCulled={false} material={sparkMat} />
   );
 }
 
@@ -535,9 +553,10 @@ export function Gift3D({
           }}
         >
           <GiftBody gift={gift} progress={progress} hover={hover} glass={glass} />
-          {/* generous invisible hit area — easier to tap on phones */}
-          <mesh>
-            <sphereGeometry args={[0.6, 8, 8]} />
+          {/* generous invisible hit area — easier to tap on phones; it reaches down over the
+              gift's label too, so tapping the name opens it as well */}
+          <mesh position={[0, -0.14, 0]} scale={[1, 1.35, 1]}>
+            <sphereGeometry args={[0.6, 12, 10]} />
             <meshBasicMaterial transparent opacity={0} depthWrite={false} colorWrite={false} />
           </mesh>
         </group>

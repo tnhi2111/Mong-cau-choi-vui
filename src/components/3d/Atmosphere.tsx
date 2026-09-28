@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef } from 'react';
 import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
+import { useShader } from './useShader';
 import { getGlowTexture } from './glowTexture';
 import type { Mood } from './Lights';
 
@@ -93,25 +94,128 @@ function Beam({ opacity }: { opacity: number }) {
     uniforms.uTime.value = state.clock.elapsedTime;
     uniforms.uOpacity.value += (opacity - uniforms.uOpacity.value) * (1 - Math.exp(-Math.min(dt, 0.05) * 1.5));
   });
+  const beamMat = useShader(beamVertex, beamFragment, uniforms, { side: THREE.DoubleSide });
   return (
-    <mesh geometry={geo} position={[0, 3.4, -0.6]} renderOrder={-1}>
-      <shaderMaterial
-        vertexShader={beamVertex}
-        fragmentShader={beamFragment}
-        uniforms={uniforms}
-        transparent
-        depthWrite={false}
-        side={THREE.DoubleSide}
-        blending={THREE.AdditiveBlending}
-      />
+    <mesh geometry={geo} position={[0, 3.4, -0.6]} renderOrder={-1} material={beamMat} />
+  );
+}
+
+const starVertex = /* glsl */ `
+  uniform float uTime;
+  uniform float uPixelRatio;
+  attribute float aSeed;
+  varying float vA;
+  void main() {
+    vec4 mv = modelViewMatrix * vec4(position, 1.0);
+    gl_Position = projectionMatrix * mv;
+    gl_PointSize = (0.8 + aSeed * aSeed * 1.8) * uPixelRatio;
+    vA = 0.35 + 0.65 * (0.5 + 0.5 * sin(uTime * (0.4 + aSeed * 1.6) + aSeed * 90.0));
+  }
+`;
+const starFragment = /* glsl */ `
+  varying float vA;
+  void main() {
+    float d = length(gl_PointCoord - 0.5);
+    gl_FragColor = vec4(vec3(1.0, 0.94, 0.97), smoothstep(0.5, 0.0, d) * vA * 0.9);
+  }
+`;
+
+/** A far, crisp night sky — tiny twinkling stars all around. */
+function Stars({ count }: { count: number }) {
+  const geo = useMemo(() => {
+    const g = new THREE.BufferGeometry();
+    const pos = new Float32Array(count * 3);
+    const seed = new Float32Array(count);
+    const v = new THREE.Vector3();
+    for (let i = 0; i < count; i++) {
+      v.randomDirection().multiplyScalar(34 + Math.random() * 10);
+      pos.set([v.x, v.y, v.z], i * 3);
+      seed[i] = Math.random();
+    }
+    g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+    g.setAttribute('aSeed', new THREE.BufferAttribute(seed, 1));
+    return g;
+  }, [count]);
+  useEffect(() => () => geo.dispose(), [geo]);
+  const uniforms = useMemo(() => ({ uTime: { value: 0 }, uPixelRatio: { value: Math.min(window.devicePixelRatio, 2) } }), []);
+  useFrame((state) => {
+    uniforms.uTime.value = state.clock.elapsedTime;
+  });
+  const starMat = useShader(starVertex, starFragment, uniforms);
+  return (
+    <points geometry={geo} frustumCulled={false} renderOrder={-3} material={starMat} />
+  );
+}
+
+const streakFragment = /* glsl */ `
+  uniform float uAlpha;
+  varying vec2 vUv;
+  void main() {
+    // bright head on the right, a long fading tail to the left
+    float tail = pow(vUv.x, 2.2);
+    float across = 1.0 - abs(vUv.y - 0.5) * 2.0;
+    gl_FragColor = vec4(vec3(1.0, 0.93, 0.96), tail * across * across * uAlpha);
+  }
+`;
+const streakVertex = /* glsl */ `
+  varying vec2 vUv;
+  void main() { vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }
+`;
+
+/** Now and then, a single shooting star crosses the far sky. Rare on purpose. */
+function ShootingStar() {
+  const mesh = useRef<THREE.Mesh>(null);
+  const uniforms = useMemo(() => ({ uAlpha: { value: 0 } }), []);
+  const run = useRef({ start: 4 + Math.random() * 4, from: new THREE.Vector3(), dir: new THREE.Vector3() });
+  useFrame((state) => {
+    const m = mesh.current;
+    if (!m) return;
+    const t = state.clock.elapsedTime;
+    const r = run.current;
+    const life = 1.1;
+    let k = (t - r.start) / life;
+    if (k > 1) {
+      // next one in 8–16 s, somewhere in the upper sky in front of the camera
+      r.start = t + 8 + Math.random() * 8;
+      const cam = state.camera;
+      const fwd = new THREE.Vector3();
+      cam.getWorldDirection(fwd);
+      const side = new THREE.Vector3().crossVectors(fwd, cam.up).normalize();
+      r.from.copy(cam.position).addScaledVector(fwd, 30).addScaledVector(side, -6 - Math.random() * 6).add(new THREE.Vector3(0, 7 + Math.random() * 5, 0));
+      r.dir.copy(side).multiplyScalar(1).add(new THREE.Vector3(0, -0.35, 0)).normalize();
+      m.quaternion.copy(cam.quaternion);
+      m.rotateZ(-0.33);
+      k = -1;
+    }
+    m.visible = k >= 0;
+    if (k < 0) return;
+    m.position.copy(r.from).addScaledVector(r.dir, k * 16);
+    uniforms.uAlpha.value = Math.sin(Math.PI * k) * 0.8;
+  });
+  const streakMat = useShader(streakVertex, streakFragment, uniforms);
+  return (
+    <mesh ref={mesh} visible={false} renderOrder={-2} material={streakMat}>
+      <planeGeometry args={[3.2, 0.05]} />
     </mesh>
   );
 }
 
-export function Atmosphere({ mood, bokeh = 14, reducedMotion }: { mood: Mood; bokeh?: number; reducedMotion: boolean }) {
+export function Atmosphere({
+  mood,
+  bokeh = 14,
+  stars = 700,
+  reducedMotion,
+}: {
+  mood: Mood;
+  bokeh?: number;
+  stars?: number;
+  reducedMotion: boolean;
+}) {
   const beam = mood === 'intro' ? 0.1 : mood === 'room' ? 0.06 : 0.12;
   return (
     <>
+      <Stars count={stars} />
+      {!reducedMotion && mood !== 'room' && <ShootingStar />}
       <Bokeh count={bokeh} reducedMotion={reducedMotion} />
       <Beam opacity={beam} />
     </>

@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef } from 'react';
 import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
+import { useShader } from './useShader';
 
 interface Props {
   count: number;
@@ -80,7 +81,6 @@ export function ParticleField({
   burstDelay = 0,
   reducedMotion = false,
 }: Props) {
-  const matRef = useRef<THREE.ShaderMaterial>(null);
   const burst = useRef(0);
   const pendingBurst = useRef(-1);
 
@@ -140,17 +140,8 @@ export function ParticleField({
     u.uIntensity.value += (intensity - u.uIntensity.value) * Math.min(1, dt * 2);
   });
 
+  const fieldMat = useShader(vertex, fragment, uniforms);
   return (
-    <points geometry={geometry} frustumCulled={false}>
-      <shaderMaterial
-        ref={matRef}
-        vertexShader={vertex}
-        fragmentShader={fragment}
-        uniforms={uniforms}
-        transparent
-        depthWrite={false}
-        blending={THREE.AdditiveBlending}
-      />
-    </points>
+    <points geometry={geometry} frustumCulled={false} material={fieldMat} />
   );
 }

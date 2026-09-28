@@ -57,10 +57,19 @@ Mỗi món quà là một khối dữ liệu: tiêu đề, ngày, địa điểm
   được tạo bằng code, không cần file, và chỉ bắt đầu sau lần chạm đầu tiên. Tắt hoặc chỉnh nhỏ ở
   `sound.effects` / `sound.volume` trong `birthday.ts`.
 
+### Kiểu trái tim và dòng chữ dưới tim
+
+Trong `birthday.ts`, mục `heart`:
+
+- `style: 'particles'` — trái tim làm từ hàng nghìn hạt ánh sáng; từ mũi tim, ánh sáng nhỏ giọt
+  xuống một vòng xoáy có chữ chạy quanh. `style: 'glass'` — trái tim bóng như sơn mài.
+- `words` — các chữ trôi quanh vòng xoáy (dùng được `{name}`, `{sender}`).
+
 ## Cô ấy sẽ tương tác thế nào
 
 - **Trái tim:** kéo để xoay 360° (có quán tính), lăn chuột / chụm hai ngón để phóng to nhẹ.
-  Chạm vào để tim đập — ba lần thì cổng mở.
+  Rê chuột (hoặc chạm) lên tim thì các hạt ánh sáng dạt ra quanh ngón tay. Chạm vào tim (hoặc
+  vòng xoáy bên dưới) để tim đập — ba lần thì cổng mở.
 - **Căn phòng quà:** kéo để đi vòng quanh căn phòng; rê chuột lên một món quà thì nó nổi lên và
   sáng; chạm để mở — camera sẽ tiến tới món quà đó.
 - **Mỗi lần mở trang là một lần mới:** tiến trình chỉ nhớ trong tab đang mở. Tải lại trang thì
