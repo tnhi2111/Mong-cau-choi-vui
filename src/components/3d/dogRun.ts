@@ -287,6 +287,9 @@ const FOOTFALL: Record<LegName, number> = { hl: 0, hr: 0.05, fl: 0.38, fr: 0.43 
 const LEAP_START = 0.43 + GALLOP.duty;
 /** How high it springs at the top of the leap (model units). */
 const LEAP_HEIGHT = 0.17;
+/** The leap's rise and fall span a little more than the flight itself (phase units). */
+const LEAP_RISE = LEAP_START - 0.08;
+const LEAP_SPAN = 1 - LEAP_RISE + 0.06;
 
 const TAU = Math.PI * 2;
 const v3 = (p: V3) => new THREE.Vector3(...p);
@@ -319,7 +322,10 @@ function ik(root: THREE.Vector3, target: THREE.Vector3, a: number, b: number, be
   const dy = target.y - root.y;
   const dz = target.z - root.z;
   const d0 = Math.hypot(dy, dz) || 1e-4;
-  const d = THREE.MathUtils.clamp(d0, Math.abs(a - b) + 1e-3, a + b - 1e-3);
+  // a real leg never locks straight: near full reach it eases toward it instead of snapping
+  const reach = a + b;
+  const soft = reach * 0.88;
+  const d = Math.max(Math.abs(a - b) + 1e-3, d0 < soft ? d0 : soft + (reach - 1e-3 - soft) * Math.tanh((d0 - soft) / (reach - soft)));
   const uy = dy / d0;
   const uz = dz / d0;
   const A = Math.acos(THREE.MathUtils.clamp((a * a + d * d - b * b) / (2 * a * d), -1, 1));
@@ -342,10 +348,13 @@ const ease = (x: number) => x * x * (3 - 2 * x);
 export function poseRun(out: THREE.Matrix4[], phase: number, k: number) {
   const f = ((phase % 1) + 1) % 1;
   // the body: a little sink over each pair of planted feet, then a high, arcing leap
-  const leapU = f >= LEAP_START ? (f - LEAP_START) / (1 - LEAP_START) : -1;
-  const bounce = k * (leapU >= 0 ? LEAP_HEIGHT * 4 * leapU * (1 - leapU) : -0.012 * Math.sin(Math.PI * Math.min(1, f / LEAP_START)));
-  // nose up while the hind legs drive, down as the fronts land and spring
-  const pitchUp = k * 0.17 * Math.sin(TAU * (f - 0.05));
+  // (smooth at both ends: it starts rising while the front feet still push, and is still
+  //  settling as the hind feet take its weight — no thud on landing, no jerk on take-off)
+  const leapU = (((f - LEAP_RISE) % 1) + 1) % 1 / LEAP_SPAN;
+  const bounce =
+    k * (leapU <= 1 ? LEAP_HEIGHT * Math.pow(Math.sin(Math.PI * leapU), 1.6) : -0.015 * Math.sin((Math.PI * (leapU - 1) * LEAP_SPAN) / (1 - LEAP_SPAN)) ** 2);
+  // nose up as the hind legs land and drive, down while the front legs take the weight
+  const pitchUp = k * 0.15 * Math.sin(TAU * (f + 0.22));
   // the spine curls (legs gathered under) at the top of the leap, stretches as the fronts reach out
   const flex = k * 0.24 * Math.cos(TAU * (f - 0.93));
   const lift = new THREE.Vector3(0, bounce, 0);
@@ -373,14 +382,20 @@ export function poseRun(out: THREE.Matrix4[], phase: number, k: number) {
       // planted: sliding back under the body as it passes over
       paw.z += stride * (1 - (2 * lf) / D);
       // the hind hock straightens as the leg drives back
-      fold = front ? 0 : -0.6 * k * (lf / D);
+      fold = front ? 0 : -0.6 * k * ease(lf / D);
     } else {
       const u = (lf - D) / (1 - D);
-      paw.z += -stride + 2 * stride * ease(u);
-      // lifted, and carried up with the body in the leap (tucked, not dangling)
-      paw.y += (front ? 0.17 : 0.14) * k * Math.pow(Math.sin(Math.PI * u), 0.8) + Math.max(0, bounce) * 0.9;
+      // back to the front on a smooth curve that carries on from the planted foot's own
+      // backward sweep (and meets the next landing the same way), so it never snaps
+      const m = ((-2 * stride) / D) * (1 - D) * 0.8;
+      const u2 = u * u;
+      const u3 = u2 * u;
+      paw.z += (2 * u3 - 3 * u2 + 1) * -stride + (u3 - 2 * u2 + u) * m + (-2 * u3 + 3 * u2) * stride + (u3 - u2) * m;
+      // lifted and set down gently, and carried up with the body in the leap (tucked, not dangling)
+      paw.y += (front ? 0.17 : 0.14) * k * 0.5 * (1 - Math.cos(TAU * u)) + Math.max(0, bounce) * 0.9 * Math.sin(Math.PI * u);
       // front: the wrist curls the paw under; hind: the hock folds, the paw trails
-      fold = front ? 1.7 * k * Math.sin(Math.PI * u) : -0.6 * k * (1 - u) + 1.3 * k * Math.sin(Math.PI * u);
+      const curl = Math.sin(Math.PI * u) ** 2;
+      fold = front ? 1.7 * k * curl : -0.6 * k * (1 - ease(u)) + 1.3 * k * curl;
     }
     // the joint above the paw, from the paw and that last segment's fold
     const lastAng = a2 + fold;

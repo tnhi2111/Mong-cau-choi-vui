@@ -105,6 +105,15 @@ down (no more waving), tail wags. Tapping again repeats it.
   body/leg points (`FUR_SHARE` in LightDog), once on the sitting body (hanging down) and
   once on the running body (streaming back), bound to the root's bone. Face, ears, bib,
   paws and tail get none.
+- Follow-up ("it jerks on every bound — make it smooth; the light under the heart spins
+  too fast to read the words"): the leap is a smooth bump (`LEAP_RISE`/`LEAP_SPAN`, zero
+  vertical speed at take-off and landing), the swing paw path is a Hermite curve whose
+  speed matches the planted foot's, lift/fold use sin² (gentle lift-off / set-down), the
+  paw's carry-up with the leap fades to 0 by landing, IK eases near full reach instead
+  of snapping straight, and body pitch is nose-up over the hind stance / nose-down over
+  the front stance (front feet now reach the ground). Measured with a 2nd-difference
+  "jolt" over two strides (`qa-output/tmp/jerk.ts`): 110–500 → 10–19. Ring under the
+  heart (`HeartVortex`) spins at about half speed; the word ring at 0.08 rad/s (was 0.2).
 - QA hooks (any build): `window.__dogT = seconds` holds the trick at a moment;
   `window.__dogPose = { phase, speed, yaw }` shows the running pose on the spot (side-view
   filmstrips of the gait were made this way; helper scripts in `qa-output/`).

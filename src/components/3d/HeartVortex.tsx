@@ -55,8 +55,9 @@ const discVertex = /* glsl */ `
   const float TAU = 6.2831853;
   void main() {
     // inner bands turn faster; neighbouring bands turn opposite ways, so each reads on its own
+    // (unhurried: slow enough to follow a single point of light round)
     float dir = aDust > 0.5 ? 1.0 : (mod(aBand, 2.0) < 0.5 ? 1.0 : -0.75);
-    float a = aA + uTime * uMotion * dir * (0.28 + 0.6 / (0.45 + aR));
+    float a = aA + uTime * uMotion * dir * (0.13 + 0.28 / (0.45 + aR));
     vec3 p = vec3(sin(a) * aR, sin(uTime * 0.8 + aSeed * 30.0) * 0.015, cos(a) * aR);
 
     // birth: each band is drawn round like a comet, one after another, smallest first
@@ -314,7 +315,8 @@ export function HeartVortex({ tipY, drop = 0.7, radius = 1.15, words, visible, d
     wordShow.current.current = opacity.current * THREE.MathUtils.smoothstep(since, lastDrawn, lastDrawn + 1.2);
     dripU.uTop.value = tipY + 0.05;
     dripU.uBottom.value = bottom;
-    if (wordRing.current) wordRing.current.rotation.y = t * 0.2 * motion;
+    // the words drift round slowly enough to read
+    if (wordRing.current) wordRing.current.rotation.y = t * 0.08 * motion;
     if (disc.current) disc.current.visible = opacity.current > 0.01;
   });
 
