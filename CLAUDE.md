@@ -69,16 +69,30 @@ facing outward at the root to half-forward below (`earTurn`), edges curled in
 `buildDog`, "ears" section) — a figure of light reads a shape by its outline. Occluders
 for the ear are flat discs along it. Waving paw (toes, pads, gaps) unchanged from before.
 
-**Puppy trick (latest request):** touching the puppy (invisible hit sphere in
-`LightDog`, only once the heart is formed; a tap on it never counts as a heart tap)
-plays: paw comes down (stays down — no more waving), 2 spins on the spot chasing its
-tail (head and tail turned toward each other, little hops), one "woof" (`sound.bark()`
-in `audio.ts`), then tongue out, panting (stays out); tail keeps wagging. Timeline
-constants at the top of `LightDog.tsx`; tongue / pad points are marked with
-`ANIM_TONGUE` / `ANIM_PAD` in `dogModel.ts`. Tapping again repeats the spin + bark.
+**Puppy run (latest request — replaced the earlier spin-on-the-spot trick):** the owner
+said the spin looked stiff and asked for the puppy to run on four legs round the heart,
+with every leg joint moving like a real dog's. Touching the puppy (invisible hit sphere in
+`LightDog`, only once the heart is formed; never counts as a heart tap) now plays:
+stand up (the sitting points flow onto a standing body) → one **gallop** lap of an oval
+round the heart (speed up, cruise, slow down; tongue out, ears flapping) → back on its
+spot, sit down facing her → one "woof" (`sound.bark()`) → tongue stays out, paw stays
+down (no more waving), tail wags. Tapping again repeats it.
+- `dogRun.ts`: the standing puppy and its skeleton (chest, hips, head, tail, 3 segments
+  per leg). `bindRun()` gives every sitting point a place + bone(s) on the standing body
+  (head/bib/tail rigidly offset; trunk and legs re-laid on standing shapes and paired by
+  region — points carry `part`/`paw` tags from `dogModel.ts`). `poseRun(phase, speed)` =
+  transverse gallop (hind pair, front pair, flight), planted feet that slide back exactly
+  at body speed (`RUN_SPEED`), 2-bone IK per leg (elbows bend back, stifles forward),
+  wrist/hock fold in the swing, spine flex, body pitch/bounce, head steadying.
+- `LightDog.tsx`: GPU skinning (`uBones`, `aRun`, `aBoneA/B/W`), `uPath` (position/heading
+  on the lap + lean into the curve), `uRun` blends sit ↔ run; lap timing at the top
+  (`STAND`, `ACCEL`, `DECEL`, `SIT`, `LAP_DEPTH`, `MIN_LAP_WIDTH`). Occluder body is off
+  while running. Reduced motion: no run, just bark + tongue.
+- QA hooks (any build): `window.__dogT = seconds` holds the trick at a moment;
+  `window.__dogPose = { phase, speed, yaw }` shows the running pose on the spot (side-view
+  filmstrips of the gait were made this way; helper scripts in `qa-output/`).
 
-QA after this change (cloud, no GPU): unit, full flow desktop / 390×844 touch / `--nogl`,
-`qa:keyboard` passed. `qa:perf` taps until each touch counts; without a GPU its "main
+QA after this change (cloud, no GPU): see the latest commit message. `qa:perf` taps until each touch counts; without a GPU its "main
 thread blocked" number is noise (240–3000 ms on old and new commits alike) — trust it
 only with `--gpu`. The owner has been sent close-ups of the new ears — waiting for feedback.
 

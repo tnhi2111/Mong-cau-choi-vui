@@ -30,7 +30,7 @@ type Col = 'gold' | 'deep' | 'cream' | 'pale';
 /** 0 = body, 1 = tail (wags), 2 = waving arm */
 type Group = 0 | 1 | 2;
 
-interface Ellipsoid {
+export interface Ellipsoid {
   kind: 'e';
   c: V3;
   r: V3;
@@ -38,7 +38,7 @@ interface Ellipsoid {
   ry?: number;
   rz?: number;
 }
-interface Cone {
+export interface Cone {
   kind: 'c';
   a: V3;
   b: V3;
@@ -52,7 +52,15 @@ interface Ear {
   kind: 'ear';
   side: 1 | -1;
 }
+/**
+ * Which part of the body a point belongs to, so the running puppy (dogRun.ts) can
+ * move it: the head, bib and tail move rigidly; the rest is re-laid on a standing body.
+ * `paw` marks the paws within a leg.
+ */
+export type Part = 'head' | 'bib' | 'torso' | 'fl' | 'fr' | 'hl' | 'hr' | 'tail';
 type Shape = (Ellipsoid | Cone | Ear) & {
+  part: Part;
+  paw?: boolean;
   col: Col;
   group: Group;
   /** smooth-union radius when melting into the rest */
@@ -95,6 +103,8 @@ function alongTail(p: THREE.Vector3): number {
   return best;
 }
 
+/** back left, back right, standing front (left) paw */
+const FOOT_PART: Part[] = ['hl', 'hr', 'fl'];
 const FEET: { c: V3; r: V3 }[] = [
   { c: [-0.25, -0.375, 0.18], r: [0.105, 0.058, 0.125] }, // back feet
   { c: [0.25, -0.375, 0.18], r: [0.105, 0.058, 0.125] },
@@ -180,31 +190,33 @@ const PAW_TOES: [number, number][] = [
 
 const SHAPES: Shape[] = [
   // head: round, a little wider at the cheeks
-  { kind: 'e', c: [0, 0.6, 0.0], r: [0.33, 0.3, 0.29], col: 'gold', group: 0, w: 2.2 },
-  { kind: 'e', c: [-0.14, 0.5, 0.17], r: [0.13, 0.11, 0.12], col: 'cream', group: 0, k: 0.07, w: 1.6, fine: true }, // cheeks
-  { kind: 'e', c: [0.14, 0.5, 0.17], r: [0.13, 0.11, 0.12], col: 'cream', group: 0, k: 0.07, w: 1.6, fine: true },
-  { kind: 'e', c: [0, 0.47, 0.25], r: [0.13, 0.095, 0.12], col: 'cream', group: 0, k: 0.06, w: 3, fine: true }, // muzzle
-  { kind: 'e', c: [0, 0.74, 0.2], r: [0.08, 0.1, 0.08], col: 'pale', group: 0, k: 0.08, w: 0.8 }, // blaze between the eyes
+  { kind: 'e', c: [0, 0.6, 0.0], r: [0.33, 0.3, 0.29], part: 'head', col: 'gold', group: 0, w: 2.2 },
+  { kind: 'e', c: [-0.14, 0.5, 0.17], r: [0.13, 0.11, 0.12], part: 'head', col: 'cream', group: 0, k: 0.07, w: 1.6, fine: true }, // cheeks
+  { kind: 'e', c: [0.14, 0.5, 0.17], r: [0.13, 0.11, 0.12], part: 'head', col: 'cream', group: 0, k: 0.07, w: 1.6, fine: true },
+  { kind: 'e', c: [0, 0.47, 0.25], r: [0.13, 0.095, 0.12], part: 'head', col: 'cream', group: 0, k: 0.06, w: 3, fine: true }, // muzzle
+  { kind: 'e', c: [0, 0.74, 0.2], r: [0.08, 0.1, 0.08], part: 'head', col: 'pale', group: 0, k: 0.08, w: 0.8 }, // blaze between the eyes
   // long floppy ears, like the photo: one flat, soft flap each, folding over from high on
   // the side of the head and hanging down beside the cheek, past the jaw
-  { kind: 'ear', side: -1, col: 'deep', group: 0, k: 0.06, w: 3.2, fur: 'ear' },
-  { kind: 'ear', side: 1, col: 'deep', group: 0, k: 0.06, w: 3.2, fur: 'ear' },
+  { kind: 'ear', side: -1, part: 'head', col: 'deep', group: 0, k: 0.06, w: 3.2, fur: 'ear' },
+  { kind: 'ear', side: 1, part: 'head', col: 'deep', group: 0, k: 0.06, w: 3.2, fur: 'ear' },
   // neck and body
-  { kind: 'c', a: [0, 0.4, -0.02], b: [0, 0.05, -0.04], r1: 0.2, r2: 0.29, col: 'gold', group: 0, k: 0.08 },
-  { kind: 'e', c: [0, 0.02, -0.04], r: [0.29, 0.33, 0.27], col: 'gold', group: 0, k: 0.08 },
-  { kind: 'e', c: [0, 0.2, 0.13], r: [0.2, 0.24, 0.12], col: 'cream', group: 0, k: 0.08, w: 1.3 }, // chest
-  { kind: 'e', c: [-0.2, -0.2, -0.04], r: [0.17, 0.17, 0.21], col: 'gold', group: 0, k: 0.07 }, // haunches
-  { kind: 'e', c: [0.2, -0.2, -0.04], r: [0.17, 0.17, 0.21], col: 'gold', group: 0, k: 0.07 },
+  { kind: 'c', a: [0, 0.4, -0.02], b: [0, 0.05, -0.04], r1: 0.2, r2: 0.29, part: 'torso', col: 'gold', group: 0, k: 0.08 },
+  { kind: 'e', c: [0, 0.02, -0.04], r: [0.29, 0.33, 0.27], part: 'torso', col: 'gold', group: 0, k: 0.08 },
+  { kind: 'e', c: [0, 0.2, 0.13], r: [0.2, 0.24, 0.12], part: 'torso', col: 'cream', group: 0, k: 0.08, w: 1.3 }, // chest
+  { kind: 'e', c: [-0.2, -0.2, -0.04], r: [0.17, 0.17, 0.21], part: 'hl', col: 'gold', group: 0, k: 0.07, w: 1.7 }, // haunches
+  { kind: 'e', c: [0.2, -0.2, -0.04], r: [0.17, 0.17, 0.21], part: 'hr', col: 'gold', group: 0, k: 0.07, w: 1.7 },
   // standing front leg
-  { kind: 'c', a: [-0.13, 0.08, 0.14], b: [-0.135, -0.32, 0.25], r1: 0.085, r2: 0.075, col: 'gold', group: 0, k: 0.05, w: 1.3 },
+  { kind: 'c', a: [-0.13, 0.08, 0.14], b: [-0.135, -0.32, 0.25], r1: 0.085, r2: 0.075, part: 'fl', col: 'gold', group: 0, k: 0.05, w: 2.2 },
   // feet, and four round toes on the front of each
-  ...FEET.map((f): Shape => ({ kind: 'e', c: f.c, r: f.r, col: 'cream', group: 0, k: 0.04, w: 2, fine: true })),
-  ...FEET.flatMap(({ c, r }) =>
+  ...FEET.map((f, i): Shape => ({ kind: 'e', c: f.c, r: f.r, part: FOOT_PART[i], paw: true, col: 'cream', group: 0, k: 0.04, w: 2, fine: true })),
+  ...FEET.flatMap(({ c, r }, i) =>
     [-0.66, -0.22, 0.22, 0.66].map(
       (k): Shape => ({
         kind: 'e',
         c: [c[0] + k * r[0], c[1] - r[1] * 0.1, c[2] + r[2] * 0.9],
         r: [r[0] * 0.26, r[1] * 0.85, 0.055],
+        part: FOOT_PART[i],
+        paw: true,
         col: 'cream',
         group: 0,
         k: 0.012,
@@ -214,14 +226,14 @@ const SHAPES: Shape[] = [
     ),
   ),
   // the waving arm and its paw
-  { kind: 'c', a: SHOULDER, b: [0.38, 0.45, 0.21], r1: 0.085, r2: 0.078, col: 'gold', group: 2, k: 0.05, w: 1.4 },
-  { kind: 'e', c: [0.4, 0.52, 0.23], r: [0.12, 0.1, 0.065], col: 'cream', group: 2, k: 0.05, w: 3, fine: true }, // palm
+  { kind: 'c', a: SHOULDER, b: [0.38, 0.45, 0.21], r1: 0.085, r2: 0.078, part: 'fr', col: 'gold', group: 2, k: 0.05, w: 2.2 },
+  { kind: 'e', c: [0.4, 0.52, 0.23], r: [0.12, 0.1, 0.065], part: 'fr', paw: true, col: 'cream', group: 2, k: 0.05, w: 3, fine: true }, // palm
   // four round toes fanned over the top of the paw, with a gap between each
-  ...PAW_TOES.map((t): Shape => ({ kind: 'e', c: [t[0], t[1], 0.25], r: [0.036, 0.042, 0.05], col: 'cream', group: 2, k: 0.012, w: 2.2, fine: true })),
+  ...PAW_TOES.map((t): Shape => ({ kind: 'e', c: [t[0], t[1], 0.25], r: [0.036, 0.042, 0.05], part: 'fr', paw: true, col: 'cream', group: 2, k: 0.012, w: 2.2, fine: true })),
   // fluffy tail curling up behind
   // a plumed tail: out from the rump, curving up in an S, the tip drooping a little
   ...TAIL_CURVE.slice(1).map(
-    (b, i): Shape => ({ kind: 'c', a: TAIL_CURVE[i], b, r1: TAIL_R[i], r2: TAIL_R[i + 1], col: 'gold', group: 1, k: 0.06, w: 2.6 }),
+    (b, i): Shape => ({ kind: 'c', a: TAIL_CURVE[i], b, r1: TAIL_R[i], r2: TAIL_R[i + 1], part: 'tail', col: 'gold', group: 1, k: 0.06, w: 2.6 }),
   ),
 ];
 
@@ -251,7 +263,7 @@ function toLocal(x: number, y: number, z: number, e: Ellipsoid): [number, number
   return [qx, qy, qz];
 }
 
-function sdEllipsoid(x: number, y: number, z: number, e: Ellipsoid): number {
+export function sdEllipsoid(x: number, y: number, z: number, e: Ellipsoid): number {
   const [lx, ly, lz] = toLocal(x, y, z, e);
   const px = lx / e.r[0];
   const py = ly / e.r[1];
@@ -262,7 +274,7 @@ function sdEllipsoid(x: number, y: number, z: number, e: Ellipsoid): number {
 }
 
 /** Round cone (iq): a capsule whose radius tapers from r1 at a to r2 at b. */
-function sdRoundCone(x: number, y: number, z: number, s: Cone): number {
+export function sdRoundCone(x: number, y: number, z: number, s: Cone): number {
   const px = x;
   let pz = z;
   if (s.flatZ) pz = (s.a[2] + s.b[2]) / 2 + (z - (s.a[2] + s.b[2]) / 2) * s.flatZ;
@@ -415,12 +427,24 @@ function carved(p: THREE.Vector3, g: Group): boolean {
 /** Point roles for the shader: 0 body, 1…1.49 tail (base → tip), 2 waving arm. */
 export const ANIM_TONGUE = 0.2;
 export const ANIM_PAD = 2.2;
+export const ANIM_EAR = 0.3;
+/** Where the ears hang from (their flap turns about a line across here). */
+export const EAR_ROOT_Y = 0.85;
+
+const mark = (out: DogPoint[], from: number, part: Part, paw = false, to = out.length) => {
+  for (let i = from; i < to; i++) {
+    out[i].part = part;
+    out[i].paw = paw;
+  }
+};
 
 export interface DogPoint {
   p: THREE.Vector3;
   col: THREE.Color;
   anim: number;
   size: number;
+  part?: Part;
+  paw?: boolean;
 }
 
 const Y_AXIS = new THREE.Vector3(0, 1, 0);
@@ -552,7 +576,9 @@ export function buildDog(total: number): DogPoint[] {
       out.push({
         p: pt,
         col: tint(COLORS[s.col], light),
-        anim,
+        anim: s.fur === 'ear' ? ANIM_EAR : anim,
+        part: s.part,
+        paw: s.paw,
         size: s.fine ? 0.8 + Math.random() * 0.7 : 1.1 + Math.pow(Math.random(), 3) * 1.6,
       });
       made++;
@@ -560,6 +586,7 @@ export function buildDog(total: number): DogPoint[] {
   });
 
   // ── the fluffy bib: curved strands falling in a V down the chest ─────────
+  const bibFrom = out.length;
   const bib = new THREE.Color('#fff7ea');
   for (let row = 0; row < 3; row++) {
     const n = 9 - row;
@@ -582,9 +609,12 @@ export function buildDog(total: number): DogPoint[] {
       strokeOnSurface(out, quad([s * 0.2, y], [s * 0.235, y - 0.05], [s * 0.2, y - 0.1], 8), tint(bib, -0.04), 1, 0.01);
     }
 
+  mark(out, bibFrom, 'bib');
+
   // ── ears: a glowing rim round each flap and soft strands down its face ──
   // (a figure of light shows a shape best by its outline — this is what makes the
   // flap read as one long, flat, hanging ear from the front)
+  const earsFrom = out.length;
   const earRim = new THREE.Color('#ffc46e');
   const earStrand = new THREE.Color('#ffa347');
   const onEar = (side: number, v: number, uf: number, lift: number) => {
@@ -613,6 +643,8 @@ export function buildDog(total: number): DogPoint[] {
         out.push({ p: onEar(side, v, uf, 0.006), col: tint(earStrand, (Math.random() - 0.5) * 0.08), anim: 0, size: 0.9 + Math.random() * 0.4 });
       }
   }
+
+  for (let i = earsFrom; i < out.length; i++) out[i].anim = ANIM_EAR;
 
   // ── eyes: brown iris, darker pupil, two catch-lights ─────────────────────
   for (const [ex, ey] of EYES) {
@@ -667,8 +699,14 @@ export function buildDog(total: number): DogPoint[] {
   // the tongue can stick out (see LightDog): mark it
   for (let i = tongueFrom; i < out.length; i++) out[i].anim = ANIM_TONGUE;
 
+  mark(out, earsFrom, 'head');
+
   // ── toes: dark gaps between them ─────────────────────────────────────────
-  for (const t of TOE_GAPS) strokeOnSurface(out, [[t.x, t.y1], [t.x, t.y0]], ink, 1.2, 0.004);
+  TOE_GAPS.forEach((t, i) => {
+    const from = out.length;
+    strokeOnSurface(out, [[t.x, t.y1], [t.x, t.y0]], ink, 1.2, 0.004);
+    mark(out, from, FOOT_PART[Math.floor(i / 3)], true);
+  });
 
   // ── paw pads on the waving paw ───────────────────────────────────────────
   // dark brown, dense, a little raised and glossy toward the top — like the photo
@@ -688,6 +726,7 @@ export function buildDog(total: number): DogPoint[] {
   for (const g of PAW_GAPS) strokeOnSurface(out, g, ink, 1.2, 0.004, 2);
   // when the paw is put down its pads turn away from her (see LightDog): mark them
   for (let i = padsFrom; i < out.length; i++) out[i].anim = ANIM_PAD;
+  mark(out, padsFrom, 'fr', true);
 
   return out;
 }

@@ -167,6 +167,7 @@ export function IntroWorld({
           scale={portrait ? 0.68 : 1.55}
           density={Math.max(0.4, heartPoints / 9000)}
           reducedMotion={reducedMotion}
+          portrait={portrait}
           interactive={stage === 'intro' && formed}
           orbit={orbit}
         />

@@ -2,7 +2,8 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { useFrame, type ThreeEvent } from '@react-three/fiber';
 import * as THREE from 'three';
 import { useShader } from './useShader';
-import { buildDog, occluders, SHOULDER, TAIL_BASE } from './dogModel';
+import { buildDog, EAR_ROOT_Y, occluders, SHOULDER, TAIL_BASE } from './dogModel';
+import { bindRun, BONE_COUNT, GALLOP, poseRun, RUN_SPEED } from './dogRun';
 import type { OrbitInput } from '../../hooks/usePointerOrbit';
 import { sound } from '../../lib/audio';
 
@@ -11,19 +12,100 @@ const ARM_DOWN_ANGLE = 2.45;
 const ARM_DOWN_SHIFT = [-0.12, -0.07];
 
 /*
- * The trick (seconds after she touches the puppy): it puts its paw down, spins round
- * twice on the spot chasing its tail (head and tail turned toward each other, little
- * hops), stops, gives one happy "woof", then sits with its tongue out, panting and
- * wagging. The paw stays down and the tongue stays out afterwards.
+ * The trick (seconds after she touches the puppy): it gets up on all fours (the light
+ * flows from the sitting pose into a standing one) and turns to run; gallops one lap
+ * round the heart — speeding up, full gallop, slowing down — back to where it sat; sits
+ * down again facing her, gives one happy "woof", and stays with its tongue out,
+ * panting, tail wagging. Its paw stays down afterwards (no more waving).
  */
-const SPIN_START = 0.3;
-const SPIN_END = 2.6;
-const BARK_AT = 2.95;
-const TRICK_END = 3.6;
+const STAND = 0.6;
+const SIT = 0.7;
+const ACCEL = 0.7;
+const DECEL = 0.9;
+/**
+ * The lap round the heart is an oval, wide across the screen and shallow in depth, so
+ * as it runs past in front it doesn't fill her screen. World units.
+ */
+const LAP_DEPTH = { wide: 1.7, tall: 1.05 };
+const MIN_LAP_WIDTH = { wide: 1.1, tall: 0.7 };
+const TAU = Math.PI * 2;
 const ease = (x: number) => {
   const c = THREE.MathUtils.clamp(x, 0, 1);
   return c * c * (3 - 2 * c);
 };
+const m = new THREE.Matrix4();
+const wrap = (a: number) => Math.atan2(Math.sin(a), Math.cos(a));
+
+interface Lap {
+  /** the oval (world, x–z): centre, radii, where it starts, which way round */
+  cx: number;
+  cz: number;
+  rx: number;
+  rz: number;
+  theta0: number;
+  dir: number;
+  /** cumulative length along the oval at N+1 even steps of the angle (a full turn) */
+  arc: Float32Array;
+  length: number;
+  /** full-gallop speed in world units */
+  speed: number;
+  cruise: number;
+  /** from the touch: back on its spot and sitting, the bark, the end of it all */
+  runEnd: number;
+  barkAt: number;
+  end: number;
+}
+const ARC_STEPS = 256;
+
+/** The lap: an oval round the heart (on the world's vertical axis) through where the puppy sits. */
+function planLap(position: [number, number, number], scale: number, portrait: boolean, run: boolean): Lap {
+  const [px, , pz] = position;
+  const rz = portrait ? LAP_DEPTH.tall : LAP_DEPTH.wide;
+  const s0 = THREE.MathUtils.clamp(pz / rz, -0.95, 0.95);
+  let theta0 = Math.asin(s0);
+  if (px < 0) theta0 = Math.PI - theta0;
+  const rx = Math.max(Math.abs(px / Math.cos(theta0)), portrait ? MIN_LAP_WIDTH.tall : MIN_LAP_WIDTH.wide);
+  const cx = px - rx * Math.cos(theta0);
+  const cz = pz - rz * Math.sin(theta0);
+  // run off toward her (the camera looks down -z) first
+  const dir = rz * Math.cos(theta0) >= 0 ? 1 : -1;
+  const arc = new Float32Array(ARC_STEPS + 1);
+  for (let i = 1; i <= ARC_STEPS; i++) {
+    const a0 = theta0 + (dir * TAU * (i - 1)) / ARC_STEPS;
+    const a1 = theta0 + (dir * TAU * i) / ARC_STEPS;
+    arc[i] = arc[i - 1] + Math.hypot(rx * (Math.cos(a1) - Math.cos(a0)), rz * (Math.sin(a1) - Math.sin(a0)));
+  }
+  const length = arc[ARC_STEPS];
+  const speed = RUN_SPEED * scale;
+  const cruise = Math.max(0, length / speed - (ACCEL + DECEL) / 2);
+  const runEnd = run ? STAND + ACCEL + cruise + DECEL + SIT : 0;
+  const barkAt = runEnd + (run ? 0.25 : 0.3);
+  return { cx, cz, rx, rz, theta0, dir, arc, length, speed, cruise, runEnd, barkAt, end: barkAt + 0.7 };
+}
+
+/** Distance run (world) and speed (0…1 of a full gallop) at time `t` into the lap. */
+function lapAt(lap: Lap, t: number): [number, number] {
+  const v = lap.speed;
+  if (t <= 0) return [0, 0];
+  if (t < ACCEL) return [(0.5 * v * t * t) / ACCEL, t / ACCEL];
+  if (t < ACCEL + lap.cruise) return [v * (ACCEL / 2 + t - ACCEL), 1];
+  const s = Math.min(t - ACCEL - lap.cruise, DECEL);
+  return [Math.min(lap.length, v * (ACCEL / 2 + lap.cruise + s - (s * s) / (2 * DECEL))), 1 - s / DECEL];
+}
+
+/** The angle on the oval after running `dist` along it. */
+function thetaAt(lap: Lap, dist: number): number {
+  const { arc } = lap;
+  let lo = 0;
+  let hi = ARC_STEPS;
+  while (hi - lo > 1) {
+    const mid = (lo + hi) >> 1;
+    if (arc[mid] < dist) lo = mid;
+    else hi = mid;
+  }
+  const f = THREE.MathUtils.clamp((dist - arc[lo]) / Math.max(arc[hi] - arc[lo], 1e-6), 0, 1);
+  return lap.theta0 + (lap.dir * TAU * (lo + f)) / ARC_STEPS;
+}
 
 /*
  * A little golden retriever puppy made of light, sitting beside the heart and
@@ -43,10 +125,16 @@ const vertex = /* glsl */ `
   uniform float uShown;
   // the trick she can ask for with a touch (see the timeline in useFrame)
   uniform float uArmDown;   // 0 waving, 1 paw put down
-  uniform float uHeadTurn;  // head turned round toward the tail
-  uniform float uTailCurl;  // tail swung round toward the head
   uniform float uBark;      // the head thrown up for the "woof"
   uniform float uTongue;    // tongue out, panting
+  uniform float uRun;       // 0 sitting … 1 on its feet (dogRun.ts)
+  uniform mat4 uBones[${BONE_COUNT}];
+  uniform mat4 uPath;       // where it has run to, and which way it faces
+  uniform float uEarFlap;   // ears thrown back by the gallop
+  attribute vec3 aRun;      // this point on the standing puppy …
+  attribute float aBoneA;   // … carried by this bone
+  attribute float aBoneB;   // (or blended toward this one)
+  attribute float aBoneW;
   attribute vec3 aStart;
   attribute float aDelay;
   attribute float aSeed;
@@ -71,43 +159,60 @@ const vertex = /* glsl */ `
 
   void main() {
     float t = uTime;
-    vec3 target = position;
-    // waving: the raised paw swings back and forth from the shoulder, a little pause between waves
-    // once she has played with it, the paw comes down to the ground beside the other
-    if (aAnim > 1.5 && aAnim < 2.5) {
-      float wave = sin(t * 5.5) * smoothstep(-0.2, 0.4, sin(t * 0.9)) * (1.0 - uArmDown);
-      target = rotZ(target, vec3(${SHOULDER.join(', ')}), wave * 0.32 * uMotion - uArmDown * ${ARM_DOWN_ANGLE});
-      target.xy += vec2(${ARM_DOWN_SHIFT.join(', ')}) * uArmDown;
-    }
+    vec3 local = position;
+    // ── movements shared by both poses (worked out on the sitting puppy, then carried
+    //    over as an offset — the head, ears and tail are the same points in both) ──
+    vec3 d = vec3(0.0);
     // the tongue: out and down over the chin, panting
     if (aAnim > 0.15 && aAnim < 0.25) {
-      float below = 0.452 - target.y;
-      target.y = 0.452 - below * (1.0 + 1.25 * uTongue) - 0.02 * uTongue;
-      target.z += uTongue * (0.02 + below * 0.6);
-      target.x *= 1.0 + 0.2 * uTongue;
-      target.y -= (0.5 + 0.5 * sin(t * 9.0)) * 0.008 * uTongue * (below / 0.09) * uMotion;
+      float below = 0.452 - local.y;
+      vec3 q = local;
+      q.y = 0.452 - below * (1.0 + 1.25 * uTongue) - 0.02 * uTongue;
+      q.z += uTongue * (0.02 + below * 0.6);
+      q.x *= 1.0 + 0.2 * uTongue;
+      q.y -= (0.5 + 0.5 * sin(t * 9.0)) * 0.008 * uTongue * (below / 0.09) * uMotion;
+      d += q - local;
     }
-    // wagging
+    // the ears: thrown back and flapping as it gallops
+    if (aAnim > 0.25 && aAnim < 0.35) {
+      float hang = clamp((${EAR_ROOT_Y.toFixed(3)} - local.y) / 0.6, 0.0, 1.0);
+      d += rotX(local, vec3(0.0, ${EAR_ROOT_Y.toFixed(3)}, -0.03), uEarFlap * hang) - local;
+    }
     // a happy wag: the whole tail sweeps side to side from its root; further along it lags
     // behind and swings wider, so it bends like a whip; bursts of wagging, then easier
     if (aAnim > 0.5 && aAnim < 1.5) {
       float along = (aAnim - 1.0) / 0.49;
       float mood = 0.65 + 0.35 * sin(t * 0.45);
       float ph = t * 9.5 - along * 1.7;
-      target = rotY(target, vec3(${TAIL_BASE.join(', ')}), sin(ph) * (0.3 + 0.45 * along) * mood * uMotion);
-      target.y += sin(ph + 1.3) * 0.02 * along * uMotion;
-      // chasing: the tail swings round toward the head
-      target = rotY(target, vec3(${TAIL_BASE.join(', ')}), -uTailCurl * 1.7);
+      vec3 q = rotY(local, vec3(${TAIL_BASE.join(', ')}), sin(ph) * (0.3 + 0.45 * along) * mood * uMotion);
+      q.y += sin(ph + 1.3) * 0.02 * along * uMotion;
+      d += q - local;
     }
-    // the head: turned round after the tail, thrown up for the bark
-    if (aAnim < 0.5) {
-      float head = smoothstep(0.3, 0.46, target.y);
-      vec3 neck = vec3(0.0, 0.38, -0.02);
-      target = rotY(target, neck, uHeadTurn * 1.05 * head);
-      target = rotX(target, neck, -uBark * 0.28 * head);
+
+    // ── sitting ──
+    vec3 sit = local + d;
+    // waving: the raised paw swings back and forth from the shoulder, a little pause between waves;
+    // once she has played with it, the paw comes down to the ground beside the other
+    if (aAnim > 1.5 && aAnim < 2.5) {
+      float wave = sin(t * 5.5) * smoothstep(-0.2, 0.4, sin(t * 0.9)) * (1.0 - uArmDown);
+      sit = rotZ(sit, vec3(${SHOULDER.join(', ')}), wave * 0.32 * uMotion - uArmDown * ${ARM_DOWN_ANGLE});
+      sit.xy += vec2(${ARM_DOWN_SHIFT.join(', ')}) * uArmDown;
     }
+    // the head thrown up for the bark
+    if (aAnim < 0.5) sit = rotX(sit, vec3(0.0, 0.38, -0.02), -uBark * 0.28 * smoothstep(0.3, 0.46, sit.y));
     // breathing
-    target.y += sin(t * 1.7) * 0.006 * uMotion * (target.y + 0.42);
+    sit.y += sin(t * 1.7) * 0.006 * uMotion * (sit.y + 0.42);
+
+    // ── running: skinned onto the skeleton, then carried round its lap ──
+    vec3 target = sit;
+    if (uRun > 0.0) {
+      vec4 r = vec4(aRun + d, 1.0);
+      vec3 run = mix((uBones[int(aBoneA)] * r).xyz, (uBones[int(aBoneB)] * r).xyz, aBoneW);
+      run = (uPath * vec4(run, 1.0)).xyz;
+      target = mix(sit, run, uRun);
+      // getting up / sitting down: the light lifts a little as it flows
+      target.y += sin(3.14159 * uRun) * 0.05;
+    }
     target += vec3(sin(t * 0.9 + aSeed * 30.0), cos(t * 0.8 + aSeed * 17.0), sin(t * 0.7 + aSeed * 11.0)) * 0.003 * uMotion;
 
     float e = clamp((uAwake - aDelay * 0.5) / 0.5, 0.0, 1.0);
@@ -126,7 +231,7 @@ const vertex = /* glsl */ `
     vAlpha = twinkle * mix(0.1, lit, smoothstep(0.0, 0.3, uAwake)) * uShown * mix(0.6, 1.0, e);
     vColor = aAnim > 3.5 ? vec3(1.0, 0.9, 0.85) : aColor;
     // pads face the ground once the paw is down: they fade, leaving the cream fur of the paw
-    if (aAnim > 2.15 && aAnim < 2.25) vAlpha *= 1.0 - 0.97 * uArmDown;
+    if (aAnim > 2.15 && aAnim < 2.25) vAlpha *= 1.0 - 0.97 * max(uArmDown, uRun);
     // the tongue out: fuller and a brighter pink, so it shows over the white bib
     if (aAnim > 0.15 && aAnim < 0.25) {
       gl_PointSize *= 1.0 + 0.8 * uTongue;
@@ -158,12 +263,14 @@ interface Props {
   scale: number;
   density: number;
   reducedMotion: boolean;
+  /** Phone-shaped screen: the lap round the heart is tighter. */
+  portrait?: boolean;
   /** Touching the puppy makes it do its trick. */
   interactive?: boolean;
   orbit?: OrbitInput;
 }
 
-export function LightDog({ awake, visible, position, facing = 0, scale, density, reducedMotion, interactive = false, orbit }: Props) {
+export function LightDog({ awake, visible, position, facing = 0, scale, density, reducedMotion, portrait = false, interactive = false, orbit }: Props) {
   const group = useRef<THREE.Group>(null);
   const awakeP = useRef(0);
   const shown = useRef(visible ? 1 : 0);
@@ -192,8 +299,13 @@ export function LightDog({ awake, visible, position, facing = 0, scale, density,
       anim[i] = d ? d.anim : 4;
       size[i] = d ? d.size : 0.8 + Math.pow(Math.random(), 3) * 2.2;
     }
+    const run = bindRun(dog, n);
     const g = new THREE.BufferGeometry();
     g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+    g.setAttribute('aRun', new THREE.BufferAttribute(run.pos, 3));
+    g.setAttribute('aBoneA', new THREE.BufferAttribute(run.boneA, 1));
+    g.setAttribute('aBoneB', new THREE.BufferAttribute(run.boneB, 1));
+    g.setAttribute('aBoneW', new THREE.BufferAttribute(run.boneW, 1));
     g.setAttribute('aStart', new THREE.BufferAttribute(start, 3));
     g.setAttribute('aDelay', new THREE.BufferAttribute(delay, 1));
     g.setAttribute('aSeed', new THREE.BufferAttribute(seed, 1));
@@ -212,10 +324,12 @@ export function LightDog({ awake, visible, position, facing = 0, scale, density,
       uMotion: { value: 1 },
       uShown: { value: 1 },
       uArmDown: { value: 0 },
-      uHeadTurn: { value: 0 },
-      uTailCurl: { value: 0 },
       uBark: { value: 0 },
       uTongue: { value: 0 },
+      uRun: { value: 0 },
+      uBones: { value: Array.from({ length: BONE_COUNT }, () => new THREE.Matrix4()) },
+      uPath: { value: new THREE.Matrix4() },
+      uEarFlap: { value: 0 },
     }),
     [],
   );
@@ -238,6 +352,7 @@ export function LightDog({ awake, visible, position, facing = 0, scale, density,
   const trick = useRef<THREE.Group>(null);
   /** When the trick began (clock seconds), whether it has barked yet, and whether it ever played. */
   const trickAt = useRef<number | null>(null);
+  const lap = useRef<Lap | null>(null);
   const barked = useRef(false);
   const played = useRef(false);
   const now = useRef(0);
@@ -257,8 +372,9 @@ export function LightDog({ awake, visible, position, facing = 0, scale, density,
     if (!canTap || awakeP.current < 1) return;
     e.stopPropagation();
     if (e.delta > 8 || (orbit && orbit.travel > 10)) return; // that was a drag
-    if (trickAt.current !== null && now.current - trickAt.current < TRICK_END) return; // still busy
+    if (trickAt.current !== null && lap.current && now.current - trickAt.current < lap.current.end) return; // still busy
     trickAt.current = now.current;
+    lap.current = planLap(position, scale, portrait, !reducedMotion);
     barked.current = false;
     played.current = true;
   };
@@ -269,35 +385,70 @@ export function LightDog({ awake, visible, position, facing = 0, scale, density,
     shown.current += ((visible ? 1 : 0) - shown.current) * (1 - Math.exp(-dt * 1.5));
     uniforms.uTime.value = state.clock.elapsedTime;
     now.current = state.clock.elapsedTime;
-    const motion = reducedMotion ? 0 : 1;
-    const T = trickAt.current === null ? Infinity : now.current - trickAt.current;
+    // (QA scripts can hold the trick at a moment: window.__dogT = seconds since the touch)
+    const held = (window as { __dogT?: number }).__dogT;
+    const T = trickAt.current === null ? Infinity : typeof held === 'number' ? held : now.current - trickAt.current;
+    const L = lap.current;
     const k = 1 - Math.exp(-dt * 6);
-    // the paw comes down as soon as she plays, and stays down; afterwards the tongue stays out
+    // the paw comes down as soon as she plays, and stays down; the tongue comes out as it
+    // sets off (panting) and stays out
     uniforms.uArmDown.value += ((played.current ? 1 : 0) - uniforms.uArmDown.value) * k;
-    uniforms.uTongue.value += ((played.current && T > BARK_AT + 0.12 ? 1 : 0) - uniforms.uTongue.value) * k;
-    const chasing = T < SPIN_END ? ease(T / 0.3) : 1 - ease((T - SPIN_END) / 0.3);
-    uniforms.uHeadTurn.value = chasing * (reducedMotion ? 0.4 : 1);
-    uniforms.uTailCurl.value = chasing * (reducedMotion ? 0.4 : 1);
-    const barkT = (T - BARK_AT) / 0.38;
+    uniforms.uTongue.value += ((played.current && T > 0.3 ? 1 : 0) - uniforms.uTongue.value) * k;
+    let runW = 0;
+    let speed = 0;
+    if (L && T < L.runEnd) {
+      const lapT = T - STAND;
+      const lapEnd = ACCEL + L.cruise + DECEL;
+      const [dist, v] = lapAt(L, Math.min(lapT, lapEnd));
+      speed = lapT > 0 && lapT < lapEnd ? v : 0;
+      // up onto its feet, turning to run; at the end, down again, turning back to her
+      runW = T < STAND ? ease(T / STAND) : lapT < lapEnd ? 1 : 1 - ease((lapT - lapEnd) / SIT);
+      const turn = T < STAND ? ease(T / STAND) : lapT < lapEnd ? 1 : 1 - ease((lapT - lapEnd) / SIT);
+      // where it is on the oval and which way it's going — in the world, then in its own space
+      const theta = thetaAt(L, dist);
+      const wx = L.cx + L.rx * Math.cos(theta) - position[0];
+      const wz = L.cz + L.rz * Math.sin(theta) - position[2];
+      const px = (wx * Math.cos(facing) - wz * Math.sin(facing)) / scale;
+      const pz = (wx * Math.sin(facing) + wz * Math.cos(facing)) / scale;
+      const tangent = (th: number) => Math.atan2(-L.rx * Math.sin(th) * L.dir, L.rz * Math.cos(th) * L.dir) - facing;
+      const heading = wrap(tangent(lapT > 0 && lapT < lapEnd ? theta : L.theta0));
+      const yaw = heading * turn;
+      // leaning into the curve, pivoting at its feet
+      const roll = 0.12 * speed * -L.dir;
+      const path = uniforms.uPath.value;
+      path.makeTranslation(0, 0.38, 0);
+      path.premultiply(m.makeRotationZ(roll));
+      path.premultiply(m.makeTranslation(0, -0.38, 0));
+      path.premultiply(m.makeRotationY(yaw));
+      path.premultiply(m.makeTranslation(px, 0, pz));
+      const phase = Math.max(0, lapT) * GALLOP.freq;
+      poseRun(uniforms.uBones.value, phase, speed);
+      uniforms.uEarFlap.value = speed * (0.45 + 0.25 * Math.sin(TAU * (phase + 0.3)));
+    }
+    // (QA: window.__dogPose = { phase, speed, yaw } shows the running pose on the spot,
+    // turned to `yaw` in the world — for filmstrips of the gait)
+    const pose = (window as { __dogPose?: { phase: number; speed: number; yaw: number } }).__dogPose;
+    if (pose) {
+      runW = 1;
+      uniforms.uPath.value.makeRotationY(pose.yaw - facing);
+      poseRun(uniforms.uBones.value, pose.phase, pose.speed);
+      uniforms.uEarFlap.value = pose.speed * (0.45 + 0.25 * Math.sin(TAU * (pose.phase + 0.3)));
+    }
+    uniforms.uRun.value = runW;
+    const barkT = L ? (T - L.barkAt) / 0.38 : -1;
     uniforms.uBark.value = barkT > 0 && barkT < 1 ? Math.sin(barkT * Math.PI) : 0;
-    if (T >= BARK_AT && !barked.current) {
+    if (L && T >= L.barkAt && !barked.current) {
       barked.current = true;
       sound.bark();
     }
-    if (trick.current) {
-      // round and round on the spot (two whole turns, so it ends facing her again), hopping
-      const spin = ease((T - SPIN_START) / (SPIN_END - SPIN_START));
-      trick.current.rotation.y = Number.isFinite(T) ? spin * Math.PI * 4 * motion : 0;
-      const hopping = T > SPIN_START && T < SPIN_END ? Math.sin(((T - SPIN_START) / (SPIN_END - SPIN_START)) * Math.PI) : 0;
-      trick.current.position.y = Math.abs(Math.sin((T - SPIN_START) * Math.PI * 4.5)) * 0.045 * hopping * motion;
-      trick.current.position.z = uniforms.uBark.value * 0.03 * motion;
-    }
+    if (trick.current) trick.current.position.z = uniforms.uBark.value * 0.03 * (reducedMotion ? 0 : 1);
     uniforms.uAwake.value = awakeP.current;
     uniforms.uMotion.value = reducedMotion ? 0.15 : 1;
     uniforms.uShown.value = shown.current;
     if (group.current) group.current.visible = shown.current > 0.01;
     // the body only exists once the light has gathered into it
-    if (body.current) body.current.visible = awakeP.current > 0.85 && shown.current > 0.5;
+    // (and only while it sits: running, it is light alone)
+    if (body.current) body.current.visible = awakeP.current > 0.85 && shown.current > 0.5 && runW < 0.01;
     // the waving arm's hidden body follows the same wave as its light (see the shader)
     if (arm.current) {
       const t = state.clock.elapsedTime;
