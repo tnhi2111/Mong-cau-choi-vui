@@ -240,6 +240,9 @@ const vertex = /* glsl */ `
     vec4 mv = modelViewMatrix * vec4(p, 1.0);
     gl_Position = projectionMatrix * mv;
     gl_PointSize = aSize * uPixelRatio * (12.0 / -mv.z) * mix(0.7, 1.0, e);
+    // on its feet the same light covers a much bigger stretch of back, flank and rump than
+    // when it sits (tucked up behind its chest and legs): fuller points keep the coat closed
+    if (aAnim < 0.05) gl_PointSize *= 1.0 + uRun * (aBoneA < 1.5 ? 0.75 : aBoneA > 3.5 ? 0.3 : 0.0);
 
     float twinkle = 0.8 + 0.2 * sin(t * (1.1 + aSeed * 2.0) + aSeed * 40.0);
     float lit = aAnim > 3.5 ? 0.55 : 1.0;
@@ -291,7 +294,7 @@ export function LightDog({ awake, visible, position, facing = 0, scale, density,
   const shown = useRef(visible ? 1 : 0);
 
   const points = useMemo(() => {
-    const surface = buildDog(Math.round(12000 * density));
+    const surface = buildDog(Math.round(15000 * density));
     const bound = bindRun(surface, surface.length);
     // a coat of fur strands over the body and legs (dogFur.ts)
     const fur = growFur(surface, bound, FUR_SHARE);
@@ -378,8 +381,19 @@ export function LightDog({ awake, visible, position, facing = 0, scale, density,
     () => [
       ...runOccluders(),
       ...flesh
-        .filter((o) => o.part === 'head')
-        .map((o) => ({ ...o, bone: HEAD, position: [o.position[0] + HEAD_OFFSET[0], o.position[1] + HEAD_OFFSET[1], o.position[2] + HEAD_OFFSET[2]] as V3 })),
+        // (not the ears: they fly in the wind while it runs, and a hidden ear left behind
+        //  would show as a dark, stiff ear-shaped hole)
+        //  …and only the head itself, not the muzzle and cheeks: the mouth hangs open
+        //  while it runs, and the hidden muzzle would show through it as a black hole)
+        .filter((o) => o.part === 'head' && !o.ear && o.scale[0] > 0.2)
+        // (and smaller: raised on its neck, the underside of the head has no fur on it —
+        //  a full-size hidden head would show there as a dark hole)
+        .map((o) => ({
+          ...o,
+          bone: HEAD,
+          position: [o.position[0] + HEAD_OFFSET[0], o.position[1] + HEAD_OFFSET[1], o.position[2] + HEAD_OFFSET[2]] as V3,
+          scale: o.scale.map((v) => v * 0.62) as V3,
+        })),
     ],
     [flesh],
   );

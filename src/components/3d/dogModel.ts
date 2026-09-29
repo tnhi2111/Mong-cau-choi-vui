@@ -200,13 +200,14 @@ const SHAPES: Shape[] = [
   { kind: 'ear', side: -1, part: 'head', col: 'deep', group: 0, k: 0.06, w: 3.2, fur: 'ear' },
   { kind: 'ear', side: 1, part: 'head', col: 'deep', group: 0, k: 0.06, w: 3.2, fur: 'ear' },
   // neck and body
-  { kind: 'c', a: [0, 0.4, -0.02], b: [0, 0.05, -0.04], r1: 0.2, r2: 0.29, part: 'torso', col: 'gold', group: 0, k: 0.08 },
-  { kind: 'e', c: [0, 0.02, -0.04], r: [0.29, 0.33, 0.27], part: 'torso', col: 'gold', group: 0, k: 0.08 },
+  // (the body gets extra light: on its feet the same points cover a longer back and rump)
+  { kind: 'c', a: [0, 0.4, -0.02], b: [0, 0.05, -0.04], r1: 0.2, r2: 0.29, part: 'torso', col: 'gold', group: 0, k: 0.08, w: 2.4 },
+  { kind: 'e', c: [0, 0.02, -0.04], r: [0.29, 0.33, 0.27], part: 'torso', col: 'gold', group: 0, k: 0.08, w: 3 },
   { kind: 'e', c: [0, 0.2, 0.13], r: [0.2, 0.24, 0.12], part: 'torso', col: 'cream', group: 0, k: 0.08, w: 1.3 }, // chest
-  { kind: 'e', c: [-0.2, -0.2, -0.04], r: [0.17, 0.17, 0.21], part: 'hl', col: 'gold', group: 0, k: 0.07, w: 1.7 }, // haunches
-  { kind: 'e', c: [0.2, -0.2, -0.04], r: [0.17, 0.17, 0.21], part: 'hr', col: 'gold', group: 0, k: 0.07, w: 1.7 },
+  { kind: 'e', c: [-0.2, -0.2, -0.04], r: [0.17, 0.17, 0.21], part: 'hl', col: 'gold', group: 0, k: 0.07, w: 3.4 }, // haunches (the thighs and rump when it stands)
+  { kind: 'e', c: [0.2, -0.2, -0.04], r: [0.17, 0.17, 0.21], part: 'hr', col: 'gold', group: 0, k: 0.07, w: 3.4 },
   // standing front leg
-  { kind: 'c', a: [-0.13, 0.08, 0.14], b: [-0.135, -0.32, 0.25], r1: 0.085, r2: 0.075, part: 'fl', col: 'gold', group: 0, k: 0.05, w: 2.2 },
+  { kind: 'c', a: [-0.13, 0.08, 0.14], b: [-0.135, -0.32, 0.25], r1: 0.085, r2: 0.075, part: 'fl', col: 'gold', group: 0, k: 0.05, w: 3 },
   // feet, and four round toes on the front of each
   ...FEET.map((f, i): Shape => ({ kind: 'e', c: f.c, r: f.r, part: FOOT_PART[i], paw: true, col: 'cream', group: 0, k: 0.04, w: 2, fine: true })),
   ...FEET.flatMap(({ c, r }, i) =>
@@ -437,9 +438,10 @@ export const ANIM_JAW = 0.1;
 export const JAW_HINGE: V3 = [0, 0.455, 0.1];
 /** Below the lip line, on the front of the face: the lower jaw and chin. */
 function inJaw(p: THREE.Vector3): boolean {
-  if (p.z < 0.2 || Math.abs(p.x) > 0.17 || p.y < 0.3) return false;
-  const line = Math.abs(p.x) < 0.13 ? lipAt(p.x) - 0.006 : 0.45 - (Math.abs(p.x) - 0.13) * 0.5;
-  return p.y < line;
+  // (just the chin and lower lip at the front — the cheeks stay where they are, so the
+  //  sides of the face never open up into a hole)
+  if (p.z < 0.25 || Math.abs(p.x) > 0.12 || p.y < 0.33) return false;
+  return p.y < lipAt(p.x) - 0.006;
 }
 /** Where the ears hang from (their flap turns about a line across here). */
 export const EAR_ROOT_Y = 0.85;
@@ -755,6 +757,8 @@ export interface Occluder {
   scale: V3;
   /** [ry, rz]: turn about Y, then tilt about Z (Euler order 'YZX') */
   rot?: [number, number];
+  /** part of an ear (which flaps in the wind when it runs) */
+  ear?: boolean;
 }
 export function occluders(): Occluder[] {
   const out: Occluder[] = [];
@@ -768,6 +772,7 @@ export function occluders(): Occluder[] {
         out.push({
           group: s.group,
           part: s.part,
+          ear: true,
           position: [f.c.x, f.c.y, f.c.z],
           scale: [earW(v) * 0.85, EAR_LEN / 7 * 0.8, earT(v) * 0.6],
           rot: [s.side * earTurn(v), 0],

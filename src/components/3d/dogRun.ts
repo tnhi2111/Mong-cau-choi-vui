@@ -73,14 +73,15 @@ type RunShape = (({ kind: 'e' } & Ellipsoid) | ({ kind: 'c' } & Cone)) & {
 
 const SHAPES: RunShape[] = [
   // a round, well-fed puppy: as broad in the body as when it sits
-  { kind: 'e', c: [0, 0.13, -0.02], r: [0.235, 0.215, 0.3], part: 'torso', bone: -1 },
+  // (the long back and the rump show a lot of coat as it runs off: they get a bigger share)
+  { kind: 'e', c: [0, 0.13, -0.02], r: [0.235, 0.215, 0.3], part: 'torso', bone: -1, w: 1.8 },
   { kind: 'e', c: [0, 0.08, 0.19], r: [0.19, 0.2, 0.14], part: 'torso', bone: -1 },
-  { kind: 'e', c: [0, 0.14, -0.22], r: [0.205, 0.185, 0.155], part: 'torso', bone: -1 },
+  { kind: 'e', c: [0, 0.14, -0.22], r: [0.205, 0.185, 0.155], part: 'torso', bone: -1, w: 1.6 },
   { kind: 'c', a: [0, 0.2, 0.19], b: [0, 0.42, 0.38], r1: 0.18, r2: 0.15, part: 'torso', bone: CHEST, w: 2 },
   ...LEGS.flatMap((leg): RunShape[] => {
     const { front, j } = REST[leg];
     const b = LEG_BONE[leg];
-    const [r0, r1, r2, r3] = front ? [0.1, 0.078, 0.062, 0.06] : [0.145, 0.088, 0.062, 0.058];
+    const [r0, r1, r2, r3] = front ? [0.1, 0.078, 0.062, 0.06] : [0.128, 0.088, 0.062, 0.058];
     const p = j[3];
     return [
       { kind: 'c', a: j[0], b: j[1], r1: r0, r2: r1, part: leg, bone: b, seg: 0 },
@@ -167,7 +168,9 @@ function sample(shapes: RunShape[], n: number): RunPoint[] {
     while (i < shapes.length - 1 && (r -= areas[i]) > 0) i++;
     const s = shapes[i];
     const t = onShape(s, p);
-    if (SHAPES.some((o) => o !== s && sd(p.x, p.y, p.z, o) < -0.006)) continue;
+    // (the trunk keeps its coat where a thigh or shoulder lies over it — otherwise the
+    //  flanks go bare under the legs' thinner coat and show as dark patches)
+    if (SHAPES.some((o) => o !== s && (s.part !== 'torso' || o.part === 'torso') && sd(p.x, p.y, p.z, o) < -0.006)) continue;
     fluff(p, s);
     out.push({ p: p.clone(), bone: s.bone, along: s.seg !== undefined ? s.seg + t : 3 });
   }
@@ -416,34 +419,27 @@ export function poseRun(out: THREE.Matrix4[], phase: number, k: number) {
   }
 }
 
-/** Simple shapes just inside the standing body, per bone, for the invisible depth-only "flesh". */
+/**
+ * Simple shapes well inside the standing body (deep under the fur, so they never show
+ * as dark patches between the points), per bone, for the invisible depth-only "flesh". */
 export interface RunOccluder {
   bone: number;
   position: V3;
   scale: V3;
 }
 export function runOccluders(): RunOccluder[] {
+  // Only the trunk: legs and neck are slim enough that their far side can show, and a
+  // hidden body poking out between their strands of fur would read as dark patches.
   const out: RunOccluder[] = [];
   for (const s of SHAPES) {
-    if (s.kind === 'e') {
-      if (s.r[0] < 0.05) continue; // toes
-      if (s.bone < 0 && s.r[2] > 0.25) {
-        // the long trunk: its front half rides the chest, its back half the hips
-        for (const [bone, side] of [[CHEST, 1], [HIPS, -1]] as const)
-          out.push({ bone, position: [s.c[0], s.c[1], s.c[2] + side * s.r[2] * 0.45], scale: [s.r[0] * 0.88, s.r[1] * 0.88, s.r[2] * 0.55] });
-        continue;
-      }
-      const bone = s.bone >= 0 ? s.bone : s.c[2] > -0.05 ? CHEST : HIPS;
-      out.push({ bone, position: s.c, scale: [s.r[0] * 0.9, s.r[1] * 0.9, s.r[2] * 0.9] });
-    } else {
-      // (the neck stays hollow at the front, so the bib and chin in front of it still show)
-      const inset = s.part === 'torso' ? 0.6 : 0.85;
-      for (let i = 0; i <= 4; i++) {
-        const t = i / 4;
-        const r = (s.r1 + (s.r2 - s.r1) * t) * inset;
-        out.push({ bone: s.bone, position: [s.a[0] + (s.b[0] - s.a[0]) * t, s.a[1] + (s.b[1] - s.a[1]) * t, s.a[2] + (s.b[2] - s.a[2]) * t], scale: [r, r, r] });
-      }
+    if (s.kind !== 'e' || s.part !== 'torso') continue;
+    if (s.r[2] > 0.25) {
+      // the long trunk: its front half rides the chest, its back half the hips
+      for (const [bone, side] of [[CHEST, 1], [HIPS, -1]] as const)
+        out.push({ bone, position: [s.c[0], s.c[1], s.c[2] + side * s.r[2] * 0.45], scale: [s.r[0] * 0.72, s.r[1] * 0.72, s.r[2] * 0.48] });
+      continue;
     }
+    out.push({ bone: s.c[2] > -0.05 ? CHEST : HIPS, position: s.c, scale: [s.r[0] * 0.72, s.r[1] * 0.72, s.r[2] * 0.72] });
   }
   return out;
 }

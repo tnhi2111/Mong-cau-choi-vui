@@ -131,6 +131,18 @@ down (no more waving), tail wags. Tapping again repeats it.
   red fill stays up as the roof. The shader turns jaw points (and the tongue, which lies on
   the jaw) about `JAW_HINGE` by `uJaw` = tongue-out × (0.34 + panting ± 0.06, wider while
   running) + a snap open for the bark. Closed before she plays, as before.
+- Follow-up (owner's phone screenshot: "while it runs there's a black shape inside — the
+  ear's light flaps but a stiff black ear stays inside it"): the hidden (depth-only) ear
+  discs no longer ride the running head (`o.ear` filtered out in `runFlesh`), nor do the
+  muzzle/cheeks (the jaw hangs open while running); the head occluder is 0.62 size.
+  Running occluders are trunk-only and well inside the coat. The other dark holes came from
+  a sparse coat, not the occluders: `sample()` dropped trunk points wherever a thigh or
+  shoulder shape overlapped the body, leaving the flanks/rump covered only by the legs'
+  thin coat — the trunk now keeps its points there. Plus more light on the body/legs
+  (sitting shape weights, 15000 base points, run shape weights) and fuller points while
+  running (`gl_PointSize` × up to 1.75 on trunk bones). Debug helpers used: density maps
+  (`qa-output/tmp/map*.ts`), four-direction shots (`qa-output/dirs.mjs`), painting
+  occluders red / colouring point groups in the page (`qa-output/allocc.mjs`, `green*.mjs`).
 - QA hooks (any build): `window.__dogT = seconds` holds the trick at a moment;
   `window.__dogPose = { phase, speed, yaw }` shows the running pose on the spot (side-view
   filmstrips of the gait were made this way; helper scripts in `qa-output/`).
