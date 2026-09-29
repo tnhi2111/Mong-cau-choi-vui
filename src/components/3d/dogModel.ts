@@ -96,6 +96,49 @@ const FEET: { c: V3; r: V3 }[] = [
   { c: [-0.135, -0.37, 0.29], r: [0.095, 0.06, 0.105] }, // standing front paw
 ];
 
+/** The ear's spine (front view, right ear; mirrored for the left) and its half-width along it. */
+const EAR_PATH: V3[] = [
+  [0.2, 0.86, -0.03],
+  [0.3, 0.78, 0.01],
+  [0.36, 0.64, 0.05],
+  [0.385, 0.5, 0.08],
+  [0.375, 0.37, 0.1],
+  [0.34, 0.26, 0.11],
+];
+const EAR_W = [0.065, 0.09, 0.11, 0.11, 0.095, 0.06];
+
+function earSegments(side: number): Shape[] {
+  const out: Shape[] = [];
+  for (let i = 0; i < EAR_PATH.length - 1; i++) {
+    const [x0, y0, z0] = EAR_PATH[i];
+    const [x1, y1, z1] = EAR_PATH[i + 1];
+    const len = Math.hypot(x1 - x0, y1 - y0);
+    out.push({
+      kind: 'e',
+      c: [side * (x0 + x1) / 2, (y0 + y1) / 2, (z0 + z1) / 2],
+      // wide across, long along the ear (overlapping its neighbours), thin in depth
+      r: [(EAR_W[i] + EAR_W[i + 1]) / 2, len * 0.72, 0.032],
+      // lie along the ear's direction, and face mostly forward, a little outward
+      rz: side * Math.atan2(x1 - x0, -(y1 - y0)),
+      ry: side * 0.45,
+      col: 'deep',
+      group: 0,
+      k: i === 0 ? 0.1 : 0.05,
+      w: 2.2,
+      fur: 'ear',
+    });
+  }
+  return out;
+}
+
+/** Toe centres on the waving paw (front view). */
+const PAW_TOES: [number, number][] = [
+  [0.318, 0.598],
+  [0.372, 0.635],
+  [0.428, 0.635],
+  [0.482, 0.598],
+];
+
 const SHAPES: Shape[] = [
   // head: round, a little wider at the cheeks
   { kind: 'e', c: [0, 0.6, 0.0], r: [0.33, 0.3, 0.29], col: 'gold', group: 0, w: 2.2 },
@@ -103,14 +146,11 @@ const SHAPES: Shape[] = [
   { kind: 'e', c: [0.14, 0.5, 0.17], r: [0.13, 0.11, 0.12], col: 'cream', group: 0, k: 0.07, w: 1.6, fine: true },
   { kind: 'e', c: [0, 0.47, 0.25], r: [0.13, 0.095, 0.12], col: 'cream', group: 0, k: 0.06, w: 3, fine: true }, // muzzle
   { kind: 'e', c: [0, 0.74, 0.2], r: [0.08, 0.1, 0.08], col: 'pale', group: 0, k: 0.08, w: 0.8 }, // blaze between the eyes
-  // long floppy ears, like the photo: each grows out of the side of the head (a wide,
-  // soft root melting into it), flares out, and hangs down to a round, heavy lobe.
-  // Three flat, tilted ovals blended into one teardrop — no straight edges anywhere.
-  ...[-1, 1].flatMap((s): Shape[] => [
-    { kind: 'e', c: [s * 0.25, 0.76, 0.0], r: [0.11, 0.1, 0.07], ry: s * 0.9, rz: s * -0.3, col: 'deep', group: 0, k: 0.12, w: 1.4, fur: 'ear' },
-    { kind: 'e', c: [s * 0.35, 0.58, 0.05], r: [0.12, 0.17, 0.042], ry: s * 0.85, rz: s * -0.22, col: 'deep', group: 0, k: 0.07, w: 2.6, fur: 'ear' },
-    { kind: 'e', c: [s * 0.39, 0.42, 0.08], r: [0.115, 0.105, 0.045], ry: s * 0.8, rz: s * -0.12, col: 'deep', group: 0, k: 0.07, w: 2.4, fur: 'ear' },
-  ]),
+  // long floppy ears, like the photo: a flat flap that grows from high on the side of
+  // the head and hangs straight down beside the cheek, past the jaw. Built from flat
+  // segments laid along the ear's own curve (each turned to follow it), so it reads as
+  // one long, soft leaf — narrow at the root, widest mid-way, a rounded tip below.
+  ...[-1, 1].flatMap((s): Shape[] => earSegments(s)),
   // neck and body
   { kind: 'c', a: [0, 0.4, -0.02], b: [0, 0.05, -0.04], r1: 0.2, r2: 0.29, col: 'gold', group: 0, k: 0.08 },
   { kind: 'e', c: [0, 0.02, -0.04], r: [0.29, 0.33, 0.27], col: 'gold', group: 0, k: 0.08 },
@@ -136,8 +176,10 @@ const SHAPES: Shape[] = [
     ),
   ),
   // the waving arm and its paw
-  { kind: 'c', a: SHOULDER, b: [0.32, 0.44, 0.19], r1: 0.085, r2: 0.075, col: 'gold', group: 2, k: 0.05, w: 1.4 },
-  { kind: 'e', c: [0.34, 0.52, 0.2], r: [0.105, 0.1, 0.07], col: 'cream', group: 2, k: 0.05, w: 3.2, fine: true },
+  { kind: 'c', a: SHOULDER, b: [0.38, 0.45, 0.21], r1: 0.085, r2: 0.078, col: 'gold', group: 2, k: 0.05, w: 1.4 },
+  { kind: 'e', c: [0.4, 0.52, 0.23], r: [0.12, 0.1, 0.065], col: 'cream', group: 2, k: 0.05, w: 3, fine: true }, // palm
+  // four round toes fanned over the top of the paw, with a gap between each
+  ...PAW_TOES.map((t): Shape => ({ kind: 'e', c: [t[0], t[1], 0.25], r: [0.036, 0.042, 0.05], col: 'cream', group: 2, k: 0.012, w: 2.2, fine: true })),
   // fluffy tail curling up behind
   // a plumed tail: out from the rump, curving up in an S, the tip drooping a little
   ...TAIL_CURVE.slice(1).map(
@@ -293,21 +335,36 @@ const TONGUE_C: [number, number] = [0, 0.405];
 const inTongue = (x: number, y: number) => ((x - TONGUE_C[0]) / 0.05) ** 2 + ((y - TONGUE_C[1]) / 0.045) ** 2 < 1 && y < lipAt(x) - 0.012;
 
 /** Pads on the waving paw (front view), dark brown like the photo. */
-const PAW_PADS: { c: [number, number]; r: [number, number] }[] = [
-  { c: [0.34, 0.495], r: [0.05, 0.038] }, // the big pad
-  { c: [0.283, 0.558], r: [0.019, 0.023] },
-  { c: [0.32, 0.588], r: [0.019, 0.023] },
-  { c: [0.362, 0.588], r: [0.019, 0.023] },
-  { c: [0.4, 0.558], r: [0.019, 0.023] },
-];
-const inPad = (x: number, y: number) => PAW_PADS.some((p) => ((x - p.c[0]) / p.r[0]) ** 2 + ((y - p.c[1]) / p.r[1]) ** 2 < 1);
+const PALM_C: [number, number] = [0.4, 0.506];
+/** The big pad: rounded, narrow at the top and three soft lobes along the bottom. */
+const inPalm = (x: number, y: number) => {
+  const u = x - PALM_C[0];
+  const v = y - PALM_C[1];
+  if ((u / 0.068) ** 2 + (v / 0.05) ** 2 > 1) return false;
+  if (Math.abs(u) > 0.068 - Math.max(0, v) * 0.75) return false;
+  // notches between the lobes at the bottom
+  return !(v < -0.032 && [-0.023, 0.023].some((n) => Math.abs(u - n) < 0.007));
+};
+const inToePad = (x: number, y: number) => PAW_TOES.some(([tx, ty]) => ((x - tx) / 0.025) ** 2 + ((y - ty + 0.005) / 0.029) ** 2 < 1);
+const inPad = (x: number, y: number) => inPalm(x, y) || inToePad(x, y);
+/** Gaps between the toes of the waving paw. */
+const PAW_GAPS = PAW_TOES.slice(1).map(([x, y], i): [number, number][] => {
+  const [px, py] = PAW_TOES[i];
+  const mx = (x + px) / 2;
+  const my = (y + py) / 2;
+  return [
+    [mx, my + 0.05],
+    [mx, my - 0.024],
+  ];
+});
+const inPawGap = (x: number, y: number) => PAW_GAPS.some(([[gx, y1], [, y0]]) => Math.abs(x - gx) < 0.008 && y < y1 && y > y0);
 
 /** Gaps between toes, as short vertical lines on the front of each foot. */
 const TOE_GAPS = FEET.flatMap(({ c, r }) => [-0.44, 0, 0.44].map((k) => ({ x: c[0] + k * r[0], y0: c[1] - r[1] * 0.75, y1: c[1] + r[1] * 0.1, zMin: c[2] + r[2] * 0.6 })));
 
 /** Is a (front-facing) fur point sitting where a dark detail will be drawn? */
 function carved(p: THREE.Vector3, g: Group): boolean {
-  if (g === 2) return p.z > 0.2 && inPad(p.x, p.y);
+  if (g === 2) return p.z > 0.2 && (inPad(p.x, p.y) || inPawGap(p.x, p.y));
   if (g !== 0) return false;
   if (p.z > 0.15 && EYES.some(([x, y]) => Math.hypot(p.x - x, p.y - y) < EYE_R * 1.08)) return true;
   if (p.z > 0.25 && (inNose(p.x, p.y) || inMouth(p.x, p.y))) return true;
@@ -521,15 +578,20 @@ export function buildDog(total: number): DogPoint[] {
   for (const t of TOE_GAPS) strokeOnSurface(out, [[t.x, t.y1], [t.x, t.y0]], ink, 1.2, 0.004);
 
   // ── paw pads on the waving paw ───────────────────────────────────────────
+  // dark brown, dense, a little raised and glossy toward the top — like the photo
   fillOnSurface(
     out,
-    360,
-    [0.26, 0.45, 0.43, 0.62],
+    1100,
+    [0.3, 0.44, 0.51, 0.68],
     inPad,
-    () => new THREE.Color('#a44e34').offsetHSL(0, 0, (Math.random() - 0.5) * 0.06),
-    () => 0.9 + Math.random() * 0.7,
+    (_, y) =>
+      new THREE.Color('#a8482a')
+        .lerp(new THREE.Color('#e08a60'), THREE.MathUtils.clamp((y - PALM_C[1] - 0.01) / 0.04, 0, 1) * (y > 0.54 ? 0.5 : 1))
+        .offsetHSL(0, 0, (Math.random() - 0.5) * 0.05),
+    () => 1 + Math.random() * 0.7,
     2,
   );
+  for (const g of PAW_GAPS) strokeOnSurface(out, g, ink, 1.2, 0.004, 2);
 
   return out;
 }
