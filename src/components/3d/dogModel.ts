@@ -1,0 +1,484 @@
+import * as THREE from 'three';
+
+/*
+ * The golden retriever puppy of light — its shape, as points.
+ *
+ * The body is a signed distance field: rounded shapes (ellipsoids and tapered
+ * "round cones") melted together with a smooth union, so head, cheeks, muzzle,
+ * neck and legs flow into each other like a real, plush little dog instead of a
+ * stack of balls. Points are sprinkled over that surface (each shape paints only
+ * the part of the surface that is its own, so the density stays even).
+ *
+ * On top of the surface we draw what makes it *that* puppy:
+ *   • long floppy ears — flattened, tapering leaves with fur strands running down
+ *   • a fluffy bib — curved strands of cream fur falling in a V down the chest
+ *   • big eyes — brown iris, darker pupil, two catch-lights
+ *   • a big glossy nose — rounded triangle, nostrils, a highlight
+ *   • an open, smiling mouth — line from the nose, curling lips, pink tongue
+ *   • toes with gaps between them, dark paw pads on the waving paw
+ *
+ * A glowing figure shows darkness only as *less light*, so dark details are drawn
+ * with dense, deep-brown points over a carved-out patch of fur (and an invisible
+ * body behind them hides the light on the far side — see LightDog).
+ *
+ * Units: ~1.45 tall, sitting, facing +z, feet at y ≈ -0.42.
+ */
+
+export type V3 = [number, number, number];
+
+type Col = 'gold' | 'deep' | 'cream' | 'pale';
+/** 0 = body, 1 = tail (wags), 2 = waving arm */
+type Group = 0 | 1 | 2;
+
+interface Ellipsoid {
+  kind: 'e';
+  c: V3;
+  r: V3;
+}
+interface Cone {
+  kind: 'c';
+  a: V3;
+  b: V3;
+  r1: number;
+  r2: number;
+  /** squash in depth (for the thin ears: broad from the front, thin from the side) */
+  flatZ?: number;
+}
+type Shape = (Ellipsoid | Cone) & {
+  col: Col;
+  group: Group;
+  /** smooth-union radius when melting into the rest */
+  k?: number;
+  /** relative point density */
+  w?: number;
+  /** fine detail: smaller, denser points, mostly on the front */
+  fine?: boolean;
+  fur?: 'ear';
+};
+
+export const SHOULDER: V3 = [0.21, 0.17, 0.14];
+export const TAIL_BASE: V3 = [0.16, -0.3, -0.24];
+
+const FEET: { c: V3; r: V3 }[] = [
+  { c: [-0.25, -0.375, 0.18], r: [0.105, 0.058, 0.125] }, // back feet
+  { c: [0.25, -0.375, 0.18], r: [0.105, 0.058, 0.125] },
+  { c: [-0.135, -0.37, 0.29], r: [0.095, 0.06, 0.105] }, // standing front paw
+];
+
+const SHAPES: Shape[] = [
+  // head: round, a little wider at the cheeks
+  { kind: 'e', c: [0, 0.6, 0.0], r: [0.33, 0.3, 0.29], col: 'gold', group: 0, w: 2.2 },
+  { kind: 'e', c: [-0.14, 0.5, 0.17], r: [0.13, 0.11, 0.12], col: 'cream', group: 0, k: 0.07, w: 1.6, fine: true }, // cheeks
+  { kind: 'e', c: [0.14, 0.5, 0.17], r: [0.13, 0.11, 0.12], col: 'cream', group: 0, k: 0.07, w: 1.6, fine: true },
+  { kind: 'e', c: [0, 0.47, 0.25], r: [0.13, 0.095, 0.12], col: 'cream', group: 0, k: 0.06, w: 3, fine: true }, // muzzle
+  { kind: 'e', c: [0, 0.74, 0.2], r: [0.08, 0.1, 0.08], col: 'pale', group: 0, k: 0.08, w: 0.8 }, // blaze between the eyes
+  // long floppy ears: tapering leaves hanging from the top of the head, thin across
+  { kind: 'c', a: [-0.29, 0.74, 0.05], b: [-0.41, 0.37, 0.13], r1: 0.125, r2: 0.085, flatZ: 2.3, col: 'deep', group: 0, k: 0.03, w: 3.2, fur: 'ear' },
+  { kind: 'c', a: [0.29, 0.74, 0.05], b: [0.41, 0.37, 0.13], r1: 0.125, r2: 0.085, flatZ: 2.3, col: 'deep', group: 0, k: 0.03, w: 3.2, fur: 'ear' },
+  // neck and body
+  { kind: 'c', a: [0, 0.4, -0.02], b: [0, 0.05, -0.04], r1: 0.2, r2: 0.29, col: 'gold', group: 0, k: 0.08 },
+  { kind: 'e', c: [0, 0.02, -0.04], r: [0.29, 0.33, 0.27], col: 'gold', group: 0, k: 0.08 },
+  { kind: 'e', c: [0, 0.2, 0.13], r: [0.2, 0.24, 0.12], col: 'cream', group: 0, k: 0.08, w: 1.3 }, // chest
+  { kind: 'e', c: [-0.2, -0.2, -0.04], r: [0.17, 0.17, 0.21], col: 'gold', group: 0, k: 0.07 }, // haunches
+  { kind: 'e', c: [0.2, -0.2, -0.04], r: [0.17, 0.17, 0.21], col: 'gold', group: 0, k: 0.07 },
+  // standing front leg
+  { kind: 'c', a: [-0.13, 0.08, 0.14], b: [-0.135, -0.32, 0.25], r1: 0.085, r2: 0.075, col: 'gold', group: 0, k: 0.05, w: 1.3 },
+  // feet, and four round toes on the front of each
+  ...FEET.map((f): Shape => ({ kind: 'e', c: f.c, r: f.r, col: 'cream', group: 0, k: 0.04, w: 2, fine: true })),
+  ...FEET.flatMap(({ c, r }) =>
+    [-0.66, -0.22, 0.22, 0.66].map(
+      (k): Shape => ({
+        kind: 'e',
+        c: [c[0] + k * r[0], c[1] - r[1] * 0.1, c[2] + r[2] * 0.9],
+        r: [r[0] * 0.26, r[1] * 0.85, 0.055],
+        col: 'cream',
+        group: 0,
+        k: 0.012,
+        w: 2.6,
+        fine: true,
+      }),
+    ),
+  ),
+  // the waving arm and its paw
+  { kind: 'c', a: SHOULDER, b: [0.32, 0.44, 0.19], r1: 0.085, r2: 0.075, col: 'gold', group: 2, k: 0.05, w: 1.4 },
+  { kind: 'e', c: [0.34, 0.52, 0.2], r: [0.105, 0.1, 0.07], col: 'cream', group: 2, k: 0.05, w: 3.2, fine: true },
+  // fluffy tail curling up behind
+  { kind: 'c', a: TAIL_BASE, b: [0.44, -0.22, -0.3], r1: 0.065, r2: 0.045, col: 'deep', group: 1, k: 0.02 },
+];
+
+const COLORS: Record<Col, THREE.Color> = {
+  gold: new THREE.Color('#ffb24f'),
+  deep: new THREE.Color('#ec7a2c'),
+  cream: new THREE.Color('#fff0d4'),
+  pale: new THREE.Color('#ffd49a'),
+};
+
+// ── distance functions ────────────────────────────────────────────────────
+function sdEllipsoid(x: number, y: number, z: number, e: Ellipsoid): number {
+  const px = (x - e.c[0]) / e.r[0];
+  const py = (y - e.c[1]) / e.r[1];
+  const pz = (z - e.c[2]) / e.r[2];
+  const k0 = Math.hypot(px, py, pz);
+  const k1 = Math.hypot(px / e.r[0], py / e.r[1], pz / e.r[2]);
+  return (k0 * (k0 - 1)) / Math.max(k1, 1e-6);
+}
+
+/** Round cone (iq): a capsule whose radius tapers from r1 at a to r2 at b. */
+function sdRoundCone(x: number, y: number, z: number, s: Cone): number {
+  const px = x;
+  let pz = z;
+  if (s.flatZ) pz = (s.a[2] + s.b[2]) / 2 + (z - (s.a[2] + s.b[2]) / 2) * s.flatZ;
+  const bax = s.b[0] - s.a[0];
+  const bay = s.b[1] - s.a[1];
+  const baz = s.b[2] - s.a[2];
+  const l2 = bax * bax + bay * bay + baz * baz;
+  const rr = s.r1 - s.r2;
+  const a2 = l2 - rr * rr;
+  const il2 = 1 / l2;
+  const pax = px - s.a[0];
+  const pay = y - s.a[1];
+  const paz = pz - s.a[2];
+  const yy = pax * bax + pay * bay + paz * baz;
+  const zz = yy - l2;
+  const xvx = pax * l2 - bax * yy;
+  const xvy = pay * l2 - bay * yy;
+  const xvz = paz * l2 - baz * yy;
+  const x2 = xvx * xvx + xvy * xvy + xvz * xvz;
+  const y2 = yy * yy * l2;
+  const z2 = zz * zz * l2;
+  const k = Math.sign(rr) * rr * rr * x2;
+  let d: number;
+  if (Math.sign(zz) * a2 * z2 > k) d = Math.sqrt(x2 + z2) * il2 - s.r2;
+  else if (Math.sign(yy) * a2 * y2 < k) d = Math.sqrt(x2 + y2) * il2 - s.r1;
+  else d = (Math.sqrt(x2 * a2 * il2) + yy * rr) * il2 - s.r1;
+  return s.flatZ ? d / s.flatZ : d;
+}
+
+const sdShape = (x: number, y: number, z: number, s: Shape) => (s.kind === 'e' ? sdEllipsoid(x, y, z, s) : sdRoundCone(x, y, z, s));
+
+function smin(a: number, b: number, k: number): number {
+  const h = Math.max(k - Math.abs(a - b), 0) / k;
+  return Math.min(a, b) - h * h * k * 0.25;
+}
+
+const byGroup: Record<Group, Shape[]> = { 0: [], 1: [], 2: [] };
+SHAPES.forEach((s) => byGroup[s.group].push(s));
+
+function sdGroup(x: number, y: number, z: number, g: Group): number {
+  const list = byGroup[g];
+  let d = sdShape(x, y, z, list[0]);
+  for (let i = 1; i < list.length; i++) d = smin(d, sdShape(x, y, z, list[i]), list[i].k ?? 0.05);
+  return d;
+}
+
+const EPS = 0.002;
+function normal(p: THREE.Vector3, g: Group, out: THREE.Vector3): THREE.Vector3 {
+  return out
+    .set(
+      sdGroup(p.x + EPS, p.y, p.z, g) - sdGroup(p.x - EPS, p.y, p.z, g),
+      sdGroup(p.x, p.y + EPS, p.z, g) - sdGroup(p.x, p.y - EPS, p.z, g),
+      sdGroup(p.x, p.y, p.z + EPS, g) - sdGroup(p.x, p.y, p.z - EPS, g),
+    )
+    .normalize();
+}
+
+const nTmp = new THREE.Vector3();
+/** Slide a point onto the group's surface. Returns the remaining distance. */
+function project(p: THREE.Vector3, g: Group, iters = 7): number {
+  let d = 0;
+  for (let i = 0; i < iters; i++) {
+    d = sdGroup(p.x, p.y, p.z, g);
+    if (Math.abs(d) < 1e-4) break;
+    normal(p, g, nTmp);
+    p.addScaledVector(nTmp, -d);
+  }
+  return Math.abs(sdGroup(p.x, p.y, p.z, g));
+}
+
+/** The surface point straight in front of (x, y), found by sliding in from the front. */
+function onFront(x: number, y: number, g: Group = 0): THREE.Vector3 {
+  const p = new THREE.Vector3(x, y, 0.6);
+  // march in along -z, then settle onto the surface
+  for (let i = 0; i < 40; i++) {
+    const d = sdGroup(p.x, p.y, p.z, g);
+    if (d < 0.002) break;
+    p.z -= Math.max(d, 0.002);
+  }
+  project(p, g, 4);
+  return p;
+}
+
+// ── features, in front-view (x, y) coordinates ───────────────────────────────
+const EYE_R = 0.066;
+const EYES: [number, number][] = [
+  [-0.122, 0.645],
+  [0.122, 0.645],
+];
+const NOSE_C: [number, number] = [0, 0.535];
+const inNose = (x: number, y: number) => {
+  const u = x - NOSE_C[0];
+  const v = y - NOSE_C[1];
+  // a rounded triangle: wide at the top, narrowing to the bottom
+  return (u / 0.078) ** 2 + (v / 0.05) ** 2 < 1 && Math.abs(u) < 0.078 - Math.max(0, -v) * 1.1;
+};
+const inNostril = (x: number, y: number) => [-1, 1].some((s) => ((x - s * 0.029) / 0.017) ** 2 + ((y - (NOSE_C[1] - 0.013)) / 0.01) ** 2 < 1);
+
+/** Upper lip: from under the nose, curving down and back up to smiling corners. */
+const lip = (side: number, t: number): [number, number] => [side * t * 0.13, 0.458 - Math.sin(t * Math.PI * 0.85) * 0.028 + t * t * 0.03];
+const lipAt = (x: number) => {
+  const t = Math.min(1, Math.abs(x) / 0.13);
+  return lip(1, t)[1];
+};
+/** The open mouth: below the lip line, above a round lower edge. */
+const inMouth = (x: number, y: number) => Math.abs(x) < 0.105 && y < lipAt(x) - 0.004 && y > 0.4 + 0.045 * (x / 0.105) ** 2;
+const TONGUE_C: [number, number] = [0, 0.405];
+const inTongue = (x: number, y: number) => ((x - TONGUE_C[0]) / 0.05) ** 2 + ((y - TONGUE_C[1]) / 0.045) ** 2 < 1 && y < lipAt(x) - 0.012;
+
+/** Pads on the waving paw (front view), dark brown like the photo. */
+const PAW_PADS: { c: [number, number]; r: [number, number] }[] = [
+  { c: [0.34, 0.495], r: [0.05, 0.038] }, // the big pad
+  { c: [0.283, 0.558], r: [0.019, 0.023] },
+  { c: [0.32, 0.588], r: [0.019, 0.023] },
+  { c: [0.362, 0.588], r: [0.019, 0.023] },
+  { c: [0.4, 0.558], r: [0.019, 0.023] },
+];
+const inPad = (x: number, y: number) => PAW_PADS.some((p) => ((x - p.c[0]) / p.r[0]) ** 2 + ((y - p.c[1]) / p.r[1]) ** 2 < 1);
+
+/** Gaps between toes, as short vertical lines on the front of each foot. */
+const TOE_GAPS = FEET.flatMap(({ c, r }) => [-0.44, 0, 0.44].map((k) => ({ x: c[0] + k * r[0], y0: c[1] - r[1] * 0.8, y1: c[1] + r[1] * 0.6, zMin: c[2] + r[2] * 0.4 })));
+
+/** Is a (front-facing) fur point sitting where a dark detail will be drawn? */
+function carved(p: THREE.Vector3, g: Group): boolean {
+  if (g === 2) return p.z > 0.2 && inPad(p.x, p.y);
+  if (g !== 0) return false;
+  if (p.z > 0.15 && EYES.some(([x, y]) => Math.hypot(p.x - x, p.y - y) < EYE_R * 1.08)) return true;
+  if (p.z > 0.25 && (inNose(p.x, p.y) || inMouth(p.x, p.y))) return true;
+  if (p.z > 0.28 && Math.abs(p.x) < 0.14 && Math.abs(p.y - lipAt(p.x)) < 0.007) return true; // lip line
+  if (p.z > 0.28 && Math.abs(p.x) < 0.007 && p.y < NOSE_C[1] - 0.04 && p.y > 0.455) return true; // line under the nose
+  return TOE_GAPS.some((t) => p.z > t.zMin && Math.abs(p.x - t.x) < 0.011 && p.y > t.y0 && p.y < t.y1);
+}
+
+export interface DogPoint {
+  p: THREE.Vector3;
+  col: THREE.Color;
+  anim: number;
+  size: number;
+}
+
+function randomOnShape(s: Shape, out: THREE.Vector3): THREE.Vector3 {
+  if (s.kind === 'e') {
+    out.randomDirection();
+    return out.set(s.c[0] + out.x * s.r[0], s.c[1] + out.y * s.r[1], s.c[2] + out.z * s.r[2]);
+  }
+  const t = Math.random();
+  const a = new THREE.Vector3(...s.a);
+  const b = new THREE.Vector3(...s.b);
+  const axis = b.clone().sub(a).normalize();
+  const side = new THREE.Vector3().randomDirection().projectOnPlane(axis).normalize();
+  const r = s.r1 + (s.r2 - s.r1) * t;
+  out.copy(a).lerp(b, t).addScaledVector(side, r);
+  if (s.flatZ) out.z = (s.a[2] + s.b[2]) / 2 + (out.z - (s.a[2] + s.b[2]) / 2) / s.flatZ;
+  return out;
+}
+
+function shapeArea(s: Shape): number {
+  if (s.kind === 'e') {
+    const [a, b, c] = s.r;
+    return 4 * Math.PI * Math.pow(((a * b) ** 1.6 + (a * c) ** 1.6 + (b * c) ** 1.6) / 3, 1 / 1.6);
+  }
+  const len = Math.hypot(s.b[0] - s.a[0], s.b[1] - s.a[1], s.b[2] - s.a[2]);
+  return (Math.PI * (s.r1 + s.r2) * len + 2 * Math.PI * (s.r1 * s.r1 + s.r2 * s.r2)) / (s.flatZ ? s.flatZ * 0.6 : 1);
+}
+
+const tint = (c: THREE.Color, l: number) => c.clone().offsetHSL((Math.random() - 0.5) * 0.02, 0, l);
+
+/** Points along a curve, lying on the surface (a fur strand or an ink line). */
+function strokeOnSurface(out: DogPoint[], pts: [number, number][], col: THREE.Color, size: number, lift: number, g: Group = 0, spacing = 0.006) {
+  for (let i = 1; i < pts.length; i++) {
+    const [x0, y0] = pts[i - 1];
+    const [x1, y1] = pts[i];
+    const n = Math.max(1, Math.ceil(Math.hypot(x1 - x0, y1 - y0) / spacing));
+    for (let k = i === 1 ? 0 : 1; k <= n; k++) {
+      const t = k / n;
+      const p = onFront(x0 + (x1 - x0) * t, y0 + (y1 - y0) * t, g);
+      normal(p, g, nTmp);
+      p.addScaledVector(nTmp, lift);
+      out.push({ p, col: col.clone(), anim: g, size });
+    }
+  }
+}
+
+/** Fill a front-view region with points lying on the surface (nose, eyes, pads…). */
+function fillOnSurface(out: DogPoint[], n: number, box: [number, number, number, number], test: (x: number, y: number) => boolean, color: (x: number, y: number) => THREE.Color, size: () => number, g: Group = 0) {
+  let made = 0;
+  let tries = 0;
+  while (made < n && tries < n * 30) {
+    tries++;
+    const x = box[0] + Math.random() * (box[2] - box[0]);
+    const y = box[1] + Math.random() * (box[3] - box[1]);
+    if (!test(x, y)) continue;
+    const p = onFront(x, y, g);
+    normal(p, g, nTmp);
+    p.addScaledVector(nTmp, 0.004);
+    out.push({ p, col: color(x, y), anim: g, size: size() });
+    made++;
+  }
+}
+
+const quad = (p0: [number, number], p1: [number, number], p2: [number, number], n: number): [number, number][] =>
+  Array.from({ length: n + 1 }, (_, i) => {
+    const t = i / n;
+    const u = 1 - t;
+    return [u * u * p0[0] + 2 * u * t * p1[0] + t * t * p2[0], u * u * p0[1] + 2 * u * t * p1[1] + t * t * p2[1]];
+  });
+
+export function buildDog(total: number): DogPoint[] {
+  const out: DogPoint[] = [];
+  const areas = SHAPES.map((s) => shapeArea(s) * (s.w ?? 1));
+  const sum = areas.reduce((a, b) => a + b, 0);
+  const p = new THREE.Vector3();
+
+  // ── fur over the surface ────────────────────────────────────────────────
+  SHAPES.forEach((s, i) => {
+    const want = Math.round((areas[i] / sum) * total);
+    let made = 0;
+    let tries = 0;
+    while (made < want && tries < want * 10) {
+      tries++;
+      randomOnShape(s, p);
+      if (project(p, s.group) > 0.004) continue;
+      // each shape paints only the part of the surface that is its own
+      const own = sdShape(p.x, p.y, p.z, s);
+      if (byGroup[s.group].some((o) => o !== s && sdShape(p.x, p.y, p.z, o) < own - 1e-4)) continue;
+      // fine areas face her: most of their light goes on the front
+      const cz = s.kind === 'e' ? s.c[2] : (s.a[2] + s.b[2]) / 2;
+      if (s.fine && p.z < cz && Math.random() < 0.7) continue;
+      if (carved(p, s.group)) continue;
+      let light = (Math.random() - 0.5) * 0.08 + (p.y > 0.8 ? 0.04 : 0);
+      // long soft strands running down the ears
+      if (s.fur === 'ear') light += Math.sin(p.x * 95 + p.y * 7 + Math.sin(p.y * 18) * 1.4) > 0.3 ? -0.12 : 0.05;
+      out.push({
+        p: p.clone(),
+        col: tint(COLORS[s.col], light),
+        anim: s.group,
+        size: s.fine ? 0.8 + Math.random() * 0.7 : 1.1 + Math.pow(Math.random(), 3) * 1.6,
+      });
+      made++;
+    }
+  });
+
+  // ── the fluffy bib: curved strands falling in a V down the chest ─────────
+  const bib = new THREE.Color('#fff7ea');
+  for (let row = 0; row < 3; row++) {
+    const n = 9 - row;
+    const top = 0.4 - row * 0.07;
+    for (let i = 0; i < n; i++) {
+      const u = (i / (n - 1)) * 2 - 1; // -1..1 across the chest
+      const x0 = u * (0.17 - row * 0.025);
+      const len = 0.16 + (1 - Math.abs(u)) * 0.1 - row * 0.02;
+      const x2 = x0 * 0.45 + (Math.random() - 0.5) * 0.02;
+      const y2 = top - len;
+      // each strand bows outward and curls in at the tip, like the photo's fur
+      const strand = quad([x0, top], [x0 * 1.18 + Math.sign(u || 1) * 0.015, top - len * 0.55], [x2, y2], 12);
+      strokeOnSurface(out, strand, tint(bib, (Math.random() - 0.5) * 0.06), 1.05, 0.012 + row * 0.006);
+    }
+  }
+  // a few shorter tufts at the sides of the neck
+  for (const s of [-1, 1])
+    for (let i = 0; i < 4; i++) {
+      const y = 0.4 - i * 0.05;
+      strokeOnSurface(out, quad([s * 0.2, y], [s * 0.235, y - 0.05], [s * 0.2, y - 0.1], 8), tint(bib, -0.04), 1, 0.01);
+    }
+
+  // ── eyes: brown iris, darker pupil, two catch-lights ─────────────────────
+  for (const [ex, ey] of EYES) {
+    fillOnSurface(
+      out,
+      260,
+      [ex - EYE_R, ey - EYE_R, ex + EYE_R, ey + EYE_R],
+      (x, y) => Math.hypot(x - ex, y - ey) < EYE_R,
+      (x, y) => {
+        const r = Math.hypot(x - ex, y - ey) / EYE_R;
+        // a warm rim at the edge, deep brown iris, near-black pupil
+        return (r > 0.86 ? new THREE.Color('#9a5230') : r > 0.5 ? new THREE.Color('#d0783c') : new THREE.Color('#6a2c14')).offsetHSL(0, 0, (Math.random() - 0.5) * 0.05);
+      },
+      () => 1 + Math.random() * 0.8,
+    );
+    const big = onFront(ex + 0.02, ey + 0.024);
+    const small = onFront(ex - 0.022, ey - 0.022);
+    normal(big, 0, nTmp);
+    out.push({ p: big.addScaledVector(nTmp, 0.01), col: new THREE.Color('#ffffff'), anim: 0, size: 6.5 });
+    out.push({ p: small.addScaledVector(nTmp, 0.01), col: new THREE.Color('#ffffff'), anim: 0, size: 3 });
+  }
+
+  // ── nose: big, glossy, with nostrils and a highlight ─────────────────────
+  fillOnSurface(
+    out,
+    520,
+    [NOSE_C[0] - 0.08, NOSE_C[1] - 0.052, NOSE_C[0] + 0.08, NOSE_C[1] + 0.052],
+    (x, y) => inNose(x, y) && !inNostril(x, y),
+    (_, y) => new THREE.Color('#7a3420').lerp(new THREE.Color('#c86c48'), THREE.MathUtils.clamp((y - NOSE_C[1] + 0.03) / 0.08, 0, 1)),
+    () => 0.9 + Math.random() * 0.7,
+  );
+  const shine = onFront(NOSE_C[0] + 0.012, NOSE_C[1] + 0.028);
+  normal(shine, 0, nTmp);
+  out.push({ p: shine.addScaledVector(nTmp, 0.012), col: new THREE.Color('#fff6f0'), anim: 0, size: 5 });
+
+  // ── mouth: line under the nose, smiling lips, dark inside, pink tongue ───
+  const ink = new THREE.Color('#c0663c');
+  strokeOnSurface(out, [[0, NOSE_C[1] - 0.045], [0, 0.458]], ink, 1.3, 0.004);
+  for (const side of [-1, 1])
+    strokeOnSurface(out, Array.from({ length: 12 }, (_, i) => lip(side, i / 11)), ink, 1.3, 0.004);
+  fillOnSurface(out, 220, [-0.105, 0.39, 0.105, 0.47], (x, y) => inMouth(x, y) && !inTongue(x, y), () => new THREE.Color('#8e2436'), () => 0.9 + Math.random() * 0.6);
+  fillOnSurface(
+    out,
+    260,
+    [-0.05, 0.36, 0.05, 0.46],
+    inTongue,
+    (x) => new THREE.Color('#ff6f96').offsetHSL(0, 0, Math.abs(x) < 0.006 ? -0.18 : (Math.random() - 0.5) * 0.06),
+    () => 0.9 + Math.random() * 0.7,
+  );
+
+  // ── toes: dark gaps between them ─────────────────────────────────────────
+  for (const t of TOE_GAPS) strokeOnSurface(out, [[t.x, t.y1], [t.x, t.y0]], ink, 1.2, 0.004);
+
+  // ── paw pads on the waving paw ───────────────────────────────────────────
+  fillOnSurface(
+    out,
+    360,
+    [0.26, 0.45, 0.43, 0.62],
+    inPad,
+    () => new THREE.Color('#a44e34').offsetHSL(0, 0, (Math.random() - 0.5) * 0.06),
+    () => 0.9 + Math.random() * 0.7,
+    2,
+  );
+
+  return out;
+}
+
+/** Simple shapes just inside the body, for the invisible depth-only "flesh". */
+export interface Occluder {
+  group: Group;
+  position: V3;
+  scale: V3;
+}
+export function occluders(): Occluder[] {
+  const out: Occluder[] = [];
+  for (const s of SHAPES) {
+    if (s.group === 1) continue; // the thin tail hides nothing
+    if (s.kind === 'e') {
+      out.push({ group: s.group, position: s.c, scale: [s.r[0] * 0.92, s.r[1] * 0.92, s.r[2] * 0.92] });
+    } else {
+      for (let i = 0; i <= 5; i++) {
+        const t = i / 5;
+        const r = (s.r1 + (s.r2 - s.r1) * t) * 0.9;
+        out.push({
+          group: s.group,
+          position: [s.a[0] + (s.b[0] - s.a[0]) * t, s.a[1] + (s.b[1] - s.a[1]) * t, s.a[2] + (s.b[2] - s.a[2]) * t],
+          scale: [r, r, r / (s.flatZ ?? 1)],
+        });
+      }
+    }
+  }
+  return out;
+}

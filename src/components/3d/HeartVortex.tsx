@@ -60,11 +60,13 @@ const discVertex = /* glsl */ `
     vec3 p = vec3(sin(a) * aR, sin(uTime * 0.8 + aSeed * 30.0) * 0.015, cos(a) * aR);
 
     // birth: each band is drawn round like a comet, one after another, smallest first
-    float start = 0.45 + aBand * 0.42;
-    float grow = clamp((uReveal - start) / 0.85, 0.0, 1.0);
+    // slow enough to follow: each band takes ~1.6 s to be drawn, the next starts ~1.1 s later
+    float start = 0.6 + aBand * 1.1;
+    float grow = clamp((uReveal - start) / 1.6, 0.0, 1.0);
+    grow = grow * grow * (3.0 - 2.0 * grow);
     float along = mod(aA, TAU) / TAU;         // where on its band this point sits (0..1)
     float drawn = aDust > 0.5
-      ? smoothstep(start + 1.4, start + 2.6, uReveal)
+      ? smoothstep(6.1 + 1.0, 6.1 + 2.6, uReveal)   // loose dust after the last band
       : step(along, grow);
     // the comet head: brightest just behind the front of the growing arc
     float head = aDust > 0.5 ? 0.0 : (1.0 - smoothstep(0.0, 0.12, grow - along)) * step(along, grow) * (1.0 - step(0.999, grow));
@@ -308,7 +310,8 @@ export function HeartVortex({ tipY, drop = 0.7, radius = 1.15, words, visible, d
     const since = revealStart.current === null ? 999 : (t - revealStart.current) * (reducedMotion ? 3 : 1);
     discU.uReveal.value = since;
     // the words come back once the last band has been drawn
-    wordShow.current.current = opacity.current * THREE.MathUtils.smoothstep(since, 0.45 + BANDS * 0.42, 1.2 + BANDS * 0.42);
+    const lastDrawn = 0.6 + (BANDS - 1) * 1.1 + 1.6;
+    wordShow.current.current = opacity.current * THREE.MathUtils.smoothstep(since, lastDrawn, lastDrawn + 1.2);
     dripU.uTop.value = tipY + 0.05;
     dripU.uBottom.value = bottom;
     if (wordRing.current) wordRing.current.rotation.y = t * 0.2 * motion;
