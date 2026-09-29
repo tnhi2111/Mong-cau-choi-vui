@@ -808,9 +808,11 @@ const LIP_Z = onFront(0, 0.44).z;
 export const TONGUE_ROOT: V3 = [0, 0.43, LIP_Z - 0.06];
 const TONGUE_CURVE = new THREE.CatmullRomCurve3([
   new THREE.Vector3(...TONGUE_ROOT),
-  new THREE.Vector3(0, 0.41, LIP_Z + 0.01),
-  new THREE.Vector3(0, 0.355, LIP_Z + 0.034),
-  new THREE.Vector3(0, 0.275, LIP_Z + 0.022),
+  // short and high: it fills the open mouth and just spills over the lower lip,
+  // instead of hanging down the chin like a dropped jaw
+  new THREE.Vector3(0, 0.425, LIP_Z + 0.012),
+  new THREE.Vector3(0, 0.395, LIP_Z + 0.03),
+  new THREE.Vector3(0, 0.355, LIP_Z + 0.026),
 ]);
 function growTongue(out: DogPoint[]) {
   const pink = new THREE.Color('#ff6f96');

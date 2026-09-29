@@ -120,6 +120,11 @@ function thetaAt(lap: Lap, dist: number): number {
  * light up where they are. Once formed: the paw waves, the tail wags, it breathes.
  */
 
+/** The head tips back about this point for the bark (shader and hidden body alike). */
+const HEAD_PIVOT: V3 = [0, 0.38, -0.02];
+/** Hidden shapes of the muzzle/cheeks (in front of the face), which the open jaw passes through. */
+const isFace = (o: { position: V3 }) => o.position[2] > 0.1 && o.position[1] < 0.6;
+
 const vertex = /* glsl */ `
   uniform float uTime;
   uniform float uAwake;
@@ -180,8 +185,9 @@ const vertex = /* glsl */ `
       float pant = (0.5 + 0.5 * sin(t * 9.0)) * 0.13 * uMotion * uTongue;
       q = rotX(q, root, (pant + uTongueBack) * along);
       q = rotZ(q, root, uTongueSide * along);
-      // it lies on the lower jaw, and goes down with it
-      q = rotX(q, vec3(${JAW_HINGE.join(', ')}), uJaw);
+      // it rests in the middle of the open mouth: it follows the lower jaw only half-way,
+      // so it stays up between the jaws instead of dropping onto the chin
+      q = rotX(q, vec3(${JAW_HINGE.join(', ')}), uJaw * 0.5);
       d += q - local;
     }
     // the lower jaw: hinged at the corners of the mouth, open while it pants, barks or runs
@@ -215,7 +221,7 @@ const vertex = /* glsl */ `
       sit.xy += vec2(${ARM_DOWN_SHIFT.join(', ')}) * uArmDown;
     }
     // the head thrown up for the bark
-    if (aAnim < 0.5) sit = rotX(sit, vec3(0.0, 0.38, -0.02), -uBark * 0.28 * smoothstep(0.3, 0.46, sit.y));
+    if (aAnim < 0.5) sit = rotX(sit, vec3(${HEAD_PIVOT.join(', ')}), -uBark * 0.28 * smoothstep(0.3, 0.46, sit.y));
     // breathing
     sit.y += sin(t * 1.7) * 0.006 * uMotion * (sit.y + 0.42);
 
@@ -398,6 +404,8 @@ export function LightDog({ awake, visible, position, facing = 0, scale, density,
     [flesh],
   );
   const runBody = useRef<THREE.Group>(null);
+  const headFlesh = useRef<THREE.Group>(null);
+  const faceFlesh = useRef<THREE.Group>(null);
   const boneGroups = useRef<(THREE.Group | null)[]>([]);
   useEffect(
     () => () => {
@@ -510,7 +518,7 @@ export function LightDog({ awake, visible, position, facing = 0, scale, density,
     uniforms.uTailSway.value = w * 0.35 * Math.sin(TAU * (gust - 0.25));
     // the mouth opens for the tongue (panting: a little in and out with each breath),
     // wider as it runs, and wide for the bark
-    const pantJaw = 0.34 + 0.06 * Math.sin(t * 9) * (reducedMotion ? 0 : 1);
+    const pantJaw = 0.2 + 0.04 * Math.sin(t * 9) * (reducedMotion ? 0 : 1);
     uniforms.uJaw.value = uniforms.uTongue.value * (pantJaw + 0.1 * w) + uniforms.uBark.value * 0.18;
     const barkT = L ? (T - L.barkAt) / 0.38 : -1;
     uniforms.uBark.value = barkT > 0 && barkT < 1 ? Math.sin(barkT * Math.PI) : 0;
@@ -519,6 +527,8 @@ export function LightDog({ awake, visible, position, facing = 0, scale, density,
       sound.bark();
     }
     if (trick.current) trick.current.position.z = uniforms.uBark.value * 0.03 * (reducedMotion ? 0 : 1);
+    if (headFlesh.current) headFlesh.current.rotation.x = -uniforms.uBark.value * 0.28;
+    if (faceFlesh.current) faceFlesh.current.visible = uniforms.uJaw.value < 0.02;
     uniforms.uAwake.value = awakeP.current;
     uniforms.uMotion.value = reducedMotion ? 0.15 : 1;
     uniforms.uShown.value = shown.current;
@@ -561,7 +571,14 @@ export function LightDog({ awake, visible, position, facing = 0, scale, density,
     <group ref={group} position={position} rotation-y={facing} scale={scale}>
       <group ref={trick}>
         <group ref={body} visible={false}>
-          {flesh.filter((o) => o.group === 0).map((o, i) => mesh(o, i))}
+          {flesh.filter((o) => o.group === 0 && o.part !== 'head').map((o, i) => mesh(o, i))}
+          {/* the head's hidden body turns with the head when it throws it up to bark (same
+              pivot and angle as the shader) — left behind, it swallowed the face into black */}
+          <group ref={headFlesh} position={HEAD_PIVOT}>
+            {flesh.filter((o) => o.group === 0 && o.part === 'head' && !isFace(o)).map((o, i) => mesh(o, i, HEAD_PIVOT))}
+            {/* muzzle and cheeks: the lower jaw swings through them when the mouth opens */}
+            <group ref={faceFlesh}>{flesh.filter((o) => o.group === 0 && o.part === 'head' && isFace(o)).map((o, i) => mesh(o, i, HEAD_PIVOT))}</group>
+          </group>
           <group ref={arm} position={SHOULDER}>
             {flesh.filter((o) => o.group === 2).map((o, i) => mesh(o, i, SHOULDER))}
           </group>
@@ -586,6 +603,7 @@ export function LightDog({ awake, visible, position, facing = 0, scale, density,
           scale={[0.5, 0.72, 0.45]}
           material={hitMaterial}
           visible={canTap}
+          userData={{ dogHit: true }}
           onClick={play}
           onPointerOver={(e) => {
             e.stopPropagation();

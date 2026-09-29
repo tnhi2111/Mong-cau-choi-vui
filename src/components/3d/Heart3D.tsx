@@ -192,6 +192,7 @@ export function Heart3D({
 
   const handle = (e: ThreeEvent<MouseEvent>) => {
     if (!interactive) return;
+    if (e.intersections.some((h) => h.object.userData.dogHit)) return; // the puppy's touch
     e.stopPropagation();
     if (e.delta > 8 || (orbit && orbit.travel > 10)) return; // that was a drag
     onTap?.();

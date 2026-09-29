@@ -147,6 +147,9 @@ export function IntroWorld({
             position={[0, -0.3, 0]}
             scale={[portrait ? 1.35 : 1.6, 1.75, portrait ? 1.35 : 1.6]}
             onClick={(e) => {
+              // this ball is big: on a wide screen it overlaps the puppy — a touch that
+              // also lands on the puppy is the puppy's, so let it through to it
+              if (e.intersections.some((h) => h.object.userData.dogHit)) return;
               e.stopPropagation();
               if (e.delta > 8 || orbit.travel > 10) return;
               onHeartTap();
