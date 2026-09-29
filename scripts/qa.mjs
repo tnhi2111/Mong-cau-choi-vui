@@ -20,11 +20,15 @@ const args = Object.fromEntries(
 const url = args.url ?? 'http://localhost:4173/';
 const [w, h] = String(args.size ?? '1440x900').split('x').map(Number);
 const mobile = !!args.mobile;
-const reduced = !!args.reduced;
+// --reduced asks the browser for reduced motion; the site only calms down if it honours
+// that (birthday.ts motion.respectReducedMotion) — otherwise it must behave as normal
+const honoursReduced = /respectReducedMotion:\s*true/.test(readFileSync('src/config/birthday.ts', 'utf8'));
+const reducedRequested = !!args.reduced;
+const reduced = reducedRequested && honoursReduced;
 // read the real password from the config, so the test never goes stale
 const configured = /birthdayPassword:\s*'([^']+)'/.exec(readFileSync('src/config/birthday.ts', 'utf8'))?.[1];
 const password = args.password ?? configured ?? '01/01/2000';
-const out = `qa-output/${w}x${h}${mobile ? '-touch' : ''}${reduced ? '-reduced' : ''}${args.nogl ? '-nogl' : ''}`;
+const out = `qa-output/${w}x${h}${mobile ? '-touch' : ''}${reducedRequested ? '-reduced' : ''}${args.nogl ? '-nogl' : ''}`;
 mkdirSync(out, { recursive: true });
 
 const exe = ['/opt/pw-browsers/chromium-1194/chrome-linux/chrome', process.env.CHROME_PATH].find(
@@ -43,7 +47,7 @@ const context = await browser.newContext({
   deviceScaleFactor: mobile ? 2 : 1,
   isMobile: mobile,
   hasTouch: mobile,
-  reducedMotion: reduced ? 'reduce' : 'no-preference',
+  reducedMotion: reducedRequested ? 'reduce' : 'no-preference',
 });
 const page = await context.newPage();
 

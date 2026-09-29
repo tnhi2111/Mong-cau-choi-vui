@@ -995,13 +995,13 @@ body:has(.sheet) .music {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .css-heart,
-  .css-gift {
+  html[data-reduce] .css-heart,
+  html[data-reduce] .css-gift {
     animation: none;
   }
 
-  .reveal,
-  .polaroid {
+  html[data-reduce] .reveal,
+  html[data-reduce] .polaroid {
     transform: none;
   }
 }

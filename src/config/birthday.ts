@@ -126,6 +126,15 @@ export const birthdayConfig = {
     words: ['Happy Birthday', '{name}', 'I love you', 'Always', 'Forever', 'Thương em', 'Mãi bên nhau', '♥'],
   },
 
+  motion: {
+    /**
+     * false (default): the gift moves the same on every device, even if the computer
+     * has "reduce motion" / "animation effects off" switched on.
+     * true: calmer, shorter animations on such devices (no run, faster gathering…).
+     */
+    respectReducedMotion: false,
+  },
+
   sound: {
     /**
      * Tiny synthesized effects: a glassy "tink" when hovering a gift or the heart,

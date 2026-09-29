@@ -51,6 +51,10 @@ export default function App() {
   const saved = useMemo(loadProgress, []);
   const reducedMotion = useReducedMotion();
   const { portrait } = useViewport();
+  // the stylesheet's calmer animations apply only when the site honours the setting
+  useEffect(() => {
+    document.documentElement.toggleAttribute('data-reduce', reducedMotion);
+  }, [reducedMotion]);
 
   const [stage, setStage] = useState<Stage>(saved.unlocked ? 'room' : 'intro');
   const [veil, setVeil] = useState<Veil>(saved.unlocked ? 'dark' : 'none');
