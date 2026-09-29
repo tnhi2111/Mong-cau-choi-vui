@@ -97,6 +97,14 @@ down (no more waving), tail wags. Tapping again repeats it.
   Head raised on a neck. Gait: `GALLOP = { freq 2.4, duty 0.32, reach 0.19 }`, higher
   flight bounce, more spine flex / pitch, higher paw lift — longer, bouncier bounds.
   Judge looks at deviceScaleFactor 2 (at 1 every figure of light looks thin).
+- Follow-up ("leap higher, livelier; give body and legs real-looking fur"): the gait is
+  now a playful bounding gallop (`FOOTFALL` hind pair / front pair, `LEAP_START`,
+  `LEAP_HEIGHT` — a high parabolic leap with every foot tucked up, not dangling).
+  Fur: `dogFur.ts` `growFur()` grows short strands (close-set points, darker root →
+  sun-bleached tip, longer feathering on belly/chest/backs of legs) from ~half the
+  body/leg points (`FUR_SHARE` in LightDog), once on the sitting body (hanging down) and
+  once on the running body (streaming back), bound to the root's bone. Face, ears, bib,
+  paws and tail get none.
 - QA hooks (any build): `window.__dogT = seconds` holds the trick at a moment;
   `window.__dogPose = { phase, speed, yaw }` shows the running pose on the spot (side-view
   filmstrips of the gait were made this way; helper scripts in `qa-output/`).

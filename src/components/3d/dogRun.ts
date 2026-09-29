@@ -122,7 +122,7 @@ function onShape(s: RunShape, out: THREE.Vector3): number {
 
 /** The standing body's surface normal at p (from the whole union of shapes). */
 const sdAll = (x: number, y: number, z: number) => SHAPES.reduce((m, o) => Math.min(m, sd(x, y, z, o)), Infinity);
-function normalAt(p: THREE.Vector3, out: THREE.Vector3) {
+export function normalAt(p: THREE.Vector3, out: THREE.Vector3) {
   const e = 0.003;
   return out
     .set(
@@ -275,11 +275,18 @@ export function bindRun(dog: DogPoint[], total: number): RunBinding {
 
 // ── the gallop ─────────────────────────────────────────────────────────────
 /** Strides per second, the share of a stride each foot is on the ground, half a stride's reach. */
-export const GALLOP = { freq: 2.4, duty: 0.32, reach: 0.19 };
+export const GALLOP = { freq: 2.1, duty: 0.3, reach: 0.2 };
 /** Body speed at full gallop (model units / s): exactly what keeps planted feet from skating. */
 export const RUN_SPEED = (2 * GALLOP.reach * GALLOP.freq) / GALLOP.duty;
-/** When each foot lands in the stride: hind pair, then front pair, then a flight. */
-const FOOTFALL: Record<LegName, number> = { hl: 0, hr: 0.1, fl: 0.45, fr: 0.55 };
+/**
+ * When each foot lands in the stride: a playful puppy's bounding gallop — the hind pair
+ * almost together, then the front pair, then a long, high leap with every foot in the air.
+ */
+const FOOTFALL: Record<LegName, number> = { hl: 0, hr: 0.05, fl: 0.38, fr: 0.43 };
+/** When the last front foot leaves the ground and the leap begins. */
+const LEAP_START = 0.43 + GALLOP.duty;
+/** How high it springs at the top of the leap (model units). */
+const LEAP_HEIGHT = 0.17;
 
 const TAU = Math.PI * 2;
 const v3 = (p: V3) => new THREE.Vector3(...p);
@@ -334,12 +341,13 @@ const ease = (x: number) => x * x * (3 - 2 * x);
  */
 export function poseRun(out: THREE.Matrix4[], phase: number, k: number) {
   const f = ((phase % 1) + 1) % 1;
-  // the body: sinking over each pair of planted feet, springing high in the flight
-  const bounce = k * 0.065 * (0.6 * Math.cos(TAU * (f - 0.93)) + 0.4 * Math.cos(2 * TAU * (f - 0.93)));
-  // nose up while the hind legs drive, down as the fronts land
-  const pitchUp = k * 0.15 * Math.sin(TAU * (f - 0.05));
-  // the spine gathers (arches) as the hind feet reach under, stretches as the fronts reach out
-  const flex = k * 0.2 * Math.cos(TAU * f);
+  // the body: a little sink over each pair of planted feet, then a high, arcing leap
+  const leapU = f >= LEAP_START ? (f - LEAP_START) / (1 - LEAP_START) : -1;
+  const bounce = k * (leapU >= 0 ? LEAP_HEIGHT * 4 * leapU * (1 - leapU) : -0.012 * Math.sin(Math.PI * Math.min(1, f / LEAP_START)));
+  // nose up while the hind legs drive, down as the fronts land and spring
+  const pitchUp = k * 0.17 * Math.sin(TAU * (f - 0.05));
+  // the spine curls (legs gathered under) at the top of the leap, stretches as the fronts reach out
+  const flex = k * 0.24 * Math.cos(TAU * (f - 0.93));
   const lift = new THREE.Vector3(0, bounce, 0);
   hinge(out[CHEST], SPINE_PIVOT, tv[0].set(...SPINE_PIVOT).add(lift), -pitchUp + flex);
   hinge(out[HIPS], SPINE_PIVOT, tv[0].set(...SPINE_PIVOT).add(lift), -pitchUp - flex);
@@ -369,7 +377,8 @@ export function poseRun(out: THREE.Matrix4[], phase: number, k: number) {
     } else {
       const u = (lf - D) / (1 - D);
       paw.z += -stride + 2 * stride * ease(u);
-      paw.y += (front ? 0.16 : 0.13) * k * Math.pow(Math.sin(Math.PI * u), 0.8);
+      // lifted, and carried up with the body in the leap (tucked, not dangling)
+      paw.y += (front ? 0.17 : 0.14) * k * Math.pow(Math.sin(Math.PI * u), 0.8) + Math.max(0, bounce) * 0.9;
       // front: the wrist curls the paw under; hind: the hock folds, the paw trails
       fold = front ? 1.7 * k * Math.sin(Math.PI * u) : -0.6 * k * (1 - u) + 1.3 * k * Math.sin(Math.PI * u);
     }

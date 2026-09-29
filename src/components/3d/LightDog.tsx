@@ -3,6 +3,7 @@ import { useFrame, type ThreeEvent } from '@react-three/fiber';
 import * as THREE from 'three';
 import { useShader } from './useShader';
 import { buildDog, EAR_ROOT_Y, occluders, SHOULDER, TAIL_BASE, type V3 } from './dogModel';
+import { growFur } from './dogFur';
 import { bindRun, BONE_COUNT, GALLOP, HEAD, HEAD_OFFSET, poseRun, RUN_SPEED, runOccluders } from './dogRun';
 import type { OrbitInput } from '../../hooks/usePointerOrbit';
 import { sound } from '../../lib/audio';
@@ -18,6 +19,8 @@ const ARM_DOWN_SHIFT = [-0.12, -0.07];
  * down again facing her, gives one happy "woof", and stays with its tongue out,
  * panting, tail wagging. Its paw stays down afterwards (no more waving).
  */
+/** Share of the body's points that grow a strand of fur. */
+const FUR_SHARE = 0.5;
 const STAND = 0.6;
 const SIT = 0.7;
 const ACCEL = 0.7;
@@ -276,7 +279,11 @@ export function LightDog({ awake, visible, position, facing = 0, scale, density,
   const shown = useRef(visible ? 1 : 0);
 
   const points = useMemo(() => {
-    const dog = buildDog(Math.round(12000 * density));
+    const surface = buildDog(Math.round(12000 * density));
+    const bound = bindRun(surface, surface.length);
+    // a coat of fur strands over the body and legs (dogFur.ts)
+    const fur = growFur(surface, bound, FUR_SHARE);
+    const dog = [...surface, ...fur.sit];
     const extra = Math.round(260 * density);
     const n = dog.length + extra;
     const pos = new Float32Array(n * 3);
@@ -299,7 +306,16 @@ export function LightDog({ awake, visible, position, facing = 0, scale, density,
       anim[i] = d ? d.anim : 4;
       size[i] = d ? d.size : 0.8 + Math.pow(Math.random(), 3) * 2.2;
     }
-    const run = bindRun(dog, n);
+    const run = {
+      pos: new Float32Array(n * 3),
+      boneA: new Float32Array(n),
+      boneB: new Float32Array(n),
+      boneW: new Float32Array(n),
+    };
+    for (const [key, w] of [['pos', 3], ['boneA', 1], ['boneB', 1], ['boneW', 1]] as const) {
+      run[key].set(bound[key], 0);
+      run[key].set(fur.run[key], surface.length * w);
+    }
     const g = new THREE.BufferGeometry();
     g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
     g.setAttribute('aRun', new THREE.BufferAttribute(run.pos, 3));

@@ -424,6 +424,12 @@ function carved(p: THREE.Vector3, g: Group): boolean {
   return TOE_GAPS.some((t) => p.z > t.zMin && Math.abs(p.x - t.x) < 0.011 && p.y > t.y0 && p.y < t.y1);
 }
 
+/** The sitting puppy's surface normal near p (for growing fur on it). */
+export function sitNormal(p: THREE.Vector3, part?: Part): THREE.Vector3 {
+  const g: Group = part === 'fr' ? 2 : part === 'tail' ? 1 : 0;
+  return normal(p, g, new THREE.Vector3());
+}
+
 /** Point roles for the shader: 0 body, 1…1.49 tail (base → tip), 2 waving arm. */
 export const ANIM_TONGUE = 0.2;
 export const ANIM_PAD = 2.2;
