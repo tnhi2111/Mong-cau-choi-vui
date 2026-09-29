@@ -432,6 +432,15 @@ export function sitNormal(p: THREE.Vector3, part?: Part): THREE.Vector3 {
 export const ANIM_TONGUE = 0.2;
 export const ANIM_PAD = 2.2;
 export const ANIM_EAR = 0.3;
+export const ANIM_JAW = 0.1;
+/** The lower jaw's hinge: back at the corners of the mouth. */
+export const JAW_HINGE: V3 = [0, 0.455, 0.1];
+/** Below the lip line, on the front of the face: the lower jaw and chin. */
+function inJaw(p: THREE.Vector3): boolean {
+  if (p.z < 0.2 || Math.abs(p.x) > 0.17 || p.y < 0.3) return false;
+  const line = Math.abs(p.x) < 0.13 ? lipAt(p.x) - 0.006 : 0.45 - (Math.abs(p.x) - 0.13) * 0.5;
+  return p.y < line;
+}
 /** Where the ears hang from (their flap turns about a line across here). */
 export const EAR_ROOT_Y = 0.85;
 
@@ -689,7 +698,17 @@ export function buildDog(total: number): DogPoint[] {
   strokeOnSurface(out, [[0, NOSE_C[1] - 0.045], [0, 0.458]], ink, 1.3, 0.004);
   for (const side of [-1, 1])
     strokeOnSurface(out, Array.from({ length: 12 }, (_, i) => lip(side, i / 11)), ink, 1.3, 0.004);
+  // the lower jaw: everything below the lip line at the front of the face hinges open
+  // (see LightDog) — so when the tongue comes out, the mouth really opens for it
+  for (const d of out) if ((d.part === 'head' || d.part === undefined) && d.anim === 0 && inJaw(d.p)) d.anim = ANIM_JAW;
+  // inside the mouth: the floor goes down with the jaw, the roof (a warmer red) stays
+  const jawFrom = out.length;
   fillOnSurface(out, 260, [-0.105, 0.39, 0.105, 0.47], inMouth, () => new THREE.Color('#8e2436'), () => 0.9 + Math.random() * 0.6);
+  // and a lower lip, so the jaw's edge reads when it opens
+  for (const side of [-1, 1])
+    strokeOnSurface(out, Array.from({ length: 12 }, (_, i) => { const [x, y] = lip(side, i / 11); return [x * 0.92, y - 0.016] as [number, number]; }), new THREE.Color('#d8845a'), 1.25, 0.005);
+  for (let i = jawFrom; i < out.length; i++) out[i].anim = ANIM_JAW;
+  fillOnSurface(out, 200, [-0.105, 0.39, 0.105, 0.47], inMouth, () => new THREE.Color('#b0344e').offsetHSL(0, 0, (Math.random() - 0.5) * 0.06), () => 0.8 + Math.random() * 0.5);
   const tongueFrom = out.length;
   growTongue(out);
 

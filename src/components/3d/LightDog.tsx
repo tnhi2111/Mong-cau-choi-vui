@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { useFrame, type ThreeEvent } from '@react-three/fiber';
 import * as THREE from 'three';
 import { useShader } from './useShader';
-import { buildDog, EAR_ROOT_Y, occluders, SHOULDER, TAIL_BASE, TONGUE_ROOT, type V3 } from './dogModel';
+import { buildDog, EAR_ROOT_Y, JAW_HINGE, occluders, SHOULDER, TAIL_BASE, TONGUE_ROOT, type V3 } from './dogModel';
 import { growFur } from './dogFur';
 import { bindRun, BONE_COUNT, GALLOP, HEAD, HEAD_OFFSET, poseRun, RUN_SPEED, runOccluders } from './dogRun';
 import type { OrbitInput } from '../../hooks/usePointerOrbit';
@@ -138,6 +138,7 @@ const vertex = /* glsl */ `
   uniform float uTongueBack; // tongue blown back by the wind of running
   uniform float uTongueSide; // … and flopping side to side
   uniform float uTailSway;  // the tail swaying behind it as it runs
+  uniform float uJaw;       // how far the lower jaw hangs open (radians)
   attribute vec3 aRun;      // this point on the standing puppy …
   attribute float aBoneA;   // … carried by this bone
   attribute float aBoneB;   // (or blended toward this one)
@@ -179,8 +180,12 @@ const vertex = /* glsl */ `
       float pant = (0.5 + 0.5 * sin(t * 9.0)) * 0.13 * uMotion * uTongue;
       q = rotX(q, root, (pant + uTongueBack) * along);
       q = rotZ(q, root, uTongueSide * along);
+      // it lies on the lower jaw, and goes down with it
+      q = rotX(q, vec3(${JAW_HINGE.join(', ')}), uJaw);
       d += q - local;
     }
+    // the lower jaw: hinged at the corners of the mouth, open while it pants, barks or runs
+    if (aAnim > 0.05 && aAnim < 0.15) d += rotX(local, vec3(${JAW_HINGE.join(', ')}), uJaw) - local;
     // the ears: thrown back and lifted out by the wind as it gallops, flapping with each bound
     if (aAnim > 0.25 && aAnim < 0.35) {
       float hang = clamp((${EAR_ROOT_Y.toFixed(3)} - local.y) / 0.6, 0.0, 1.0);
@@ -357,6 +362,7 @@ export function LightDog({ awake, visible, position, facing = 0, scale, density,
       uTongueBack: { value: 0 },
       uTongueSide: { value: 0 },
       uTailSway: { value: 0 },
+      uJaw: { value: 0 },
     }),
     [],
   );
@@ -488,6 +494,10 @@ export function LightDog({ awake, visible, position, facing = 0, scale, density,
     uniforms.uTongueBack.value = w * (0.75 + 0.2 * Math.sin(TAU * (gust - 0.2)));
     uniforms.uTongueSide.value = w * 0.4 * Math.sin(Math.PI * gust + 0.6);
     uniforms.uTailSway.value = w * 0.35 * Math.sin(TAU * (gust - 0.25));
+    // the mouth opens for the tongue (panting: a little in and out with each breath),
+    // wider as it runs, and wide for the bark
+    const pantJaw = 0.34 + 0.06 * Math.sin(t * 9) * (reducedMotion ? 0 : 1);
+    uniforms.uJaw.value = uniforms.uTongue.value * (pantJaw + 0.1 * w) + uniforms.uBark.value * 0.18;
     const barkT = L ? (T - L.barkAt) / 0.38 : -1;
     uniforms.uBark.value = barkT > 0 && barkT < 1 ? Math.sin(barkT * Math.PI) : 0;
     if (L && T >= L.barkAt && !barked.current) {

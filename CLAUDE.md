@@ -125,6 +125,12 @@ down (no more waving), tail wags. Tapping again repeats it.
   it back (`uTongueBack`) and flop side to side (`uTongueSide`). Ears: thrown back
   (`uEarFlap`) and lifted outward (`uEarLift`), flapping with the stride; tail sways
   (`uTailSway`). All driven by a lagged "wind" (speed smoothed) and the stride phase.
+- Follow-up ("the mouth is shut but the tongue is out — the mouth must open for it"): a
+  hinged lower jaw. `inJaw()` in dogModel marks everything below the lip line on the front
+  of the face `ANIM_JAW`, plus the mouth floor and a lower-lip stroke; a second, warmer
+  red fill stays up as the roof. The shader turns jaw points (and the tongue, which lies on
+  the jaw) about `JAW_HINGE` by `uJaw` = tongue-out × (0.34 + panting ± 0.06, wider while
+  running) + a snap open for the bark. Closed before she plays, as before.
 - QA hooks (any build): `window.__dogT = seconds` holds the trick at a moment;
   `window.__dogPose = { phase, speed, yaw }` shows the running pose on the spot (side-view
   filmstrips of the gait were made this way; helper scripts in `qa-output/`).
