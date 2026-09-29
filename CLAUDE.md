@@ -69,6 +69,14 @@ facing outward at the root to half-forward below (`earTurn`), edges curled in
 `buildDog`, "ears" section) — a figure of light reads a shape by its outline. Occluders
 for the ear are flat discs along it. Waving paw (toes, pads, gaps) unchanged from before.
 
+**Puppy trick (latest request):** touching the puppy (invisible hit sphere in
+`LightDog`, only once the heart is formed; a tap on it never counts as a heart tap)
+plays: paw comes down (stays down — no more waving), 2 spins on the spot chasing its
+tail (head and tail turned toward each other, little hops), one "woof" (`sound.bark()`
+in `audio.ts`), then tongue out, panting (stays out); tail keeps wagging. Timeline
+constants at the top of `LightDog.tsx`; tongue / pad points are marked with
+`ANIM_TONGUE` / `ANIM_PAD` in `dogModel.ts`. Tapping again repeats the spin + bark.
+
 QA after this change (cloud, no GPU): unit, full flow desktop / 390×844 touch / `--nogl`,
 `qa:keyboard` passed. `qa:perf` taps until each touch counts; without a GPU its "main
 thread blocked" number is noise (240–3000 ms on old and new commits alike) — trust it

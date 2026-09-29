@@ -233,6 +233,60 @@ class SoundSystem {
     });
   }
 
+  /**
+   * A puppy's single happy "woof": a buzzy voice that jumps up and falls away, shaped
+   * by a mouth-like band, with a little breath of air on top.
+   */
+  bark(): void {
+    const ctx = this.ready();
+    if (!ctx || !this.out) return;
+    try {
+      const now = ctx.currentTime;
+      const voice = ctx.createOscillator();
+      voice.type = 'sawtooth';
+      voice.frequency.setValueAtTime(430, now);
+      voice.frequency.exponentialRampToValueAtTime(690, now + 0.035);
+      voice.frequency.exponentialRampToValueAtTime(300, now + 0.2);
+      const mouth = ctx.createBiquadFilter();
+      mouth.type = 'bandpass';
+      mouth.Q.value = 2.2;
+      mouth.frequency.setValueAtTime(900, now);
+      mouth.frequency.exponentialRampToValueAtTime(1400, now + 0.04);
+      mouth.frequency.exponentialRampToValueAtTime(700, now + 0.2);
+      const soft = ctx.createBiquadFilter();
+      soft.type = 'lowpass';
+      soft.frequency.value = 2600;
+      const env = ctx.createGain();
+      env.gain.setValueAtTime(0.0001, now);
+      env.gain.exponentialRampToValueAtTime(0.32, now + 0.012);
+      env.gain.exponentialRampToValueAtTime(0.12, now + 0.09);
+      env.gain.exponentialRampToValueAtTime(0.0001, now + 0.24);
+      voice.connect(mouth).connect(soft).connect(env).connect(this.out);
+      voice.start(now);
+      voice.stop(now + 0.26);
+      // breath
+      const len = Math.ceil(ctx.sampleRate * 0.12);
+      const buf = ctx.createBuffer(1, len, ctx.sampleRate);
+      const data = buf.getChannelData(0);
+      for (let i = 0; i < len; i++) data[i] = Math.random() * 2 - 1;
+      const noise = ctx.createBufferSource();
+      noise.buffer = buf;
+      const band = ctx.createBiquadFilter();
+      band.type = 'bandpass';
+      band.frequency.value = 1800;
+      band.Q.value = 1.2;
+      const air = ctx.createGain();
+      air.gain.setValueAtTime(0.0001, now);
+      air.gain.exponentialRampToValueAtTime(0.06, now + 0.01);
+      air.gain.exponentialRampToValueAtTime(0.0001, now + 0.11);
+      noise.connect(band).connect(air).connect(this.out);
+      noise.start(now);
+      noise.stop(now + 0.12);
+    } catch {
+      /* decoration only */
+    }
+  }
+
   /** The deep, muffled "thump" under a heartbeat. */
   thump(strength = 1): void {
     const ctx = this.ready();

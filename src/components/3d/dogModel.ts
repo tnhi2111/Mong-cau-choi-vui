@@ -412,6 +412,10 @@ function carved(p: THREE.Vector3, g: Group): boolean {
   return TOE_GAPS.some((t) => p.z > t.zMin && Math.abs(p.x - t.x) < 0.011 && p.y > t.y0 && p.y < t.y1);
 }
 
+/** Point roles for the shader: 0 body, 1…1.49 tail (base → tip), 2 waving arm. */
+export const ANIM_TONGUE = 0.2;
+export const ANIM_PAD = 2.2;
+
 export interface DogPoint {
   p: THREE.Vector3;
   col: THREE.Color;
@@ -650,6 +654,7 @@ export function buildDog(total: number): DogPoint[] {
   for (const side of [-1, 1])
     strokeOnSurface(out, Array.from({ length: 12 }, (_, i) => lip(side, i / 11)), ink, 1.3, 0.004);
   fillOnSurface(out, 220, [-0.105, 0.39, 0.105, 0.47], (x, y) => inMouth(x, y) && !inTongue(x, y), () => new THREE.Color('#8e2436'), () => 0.9 + Math.random() * 0.6);
+  const tongueFrom = out.length;
   fillOnSurface(
     out,
     260,
@@ -659,11 +664,15 @@ export function buildDog(total: number): DogPoint[] {
     () => 0.9 + Math.random() * 0.7,
   );
 
+  // the tongue can stick out (see LightDog): mark it
+  for (let i = tongueFrom; i < out.length; i++) out[i].anim = ANIM_TONGUE;
+
   // ── toes: dark gaps between them ─────────────────────────────────────────
   for (const t of TOE_GAPS) strokeOnSurface(out, [[t.x, t.y1], [t.x, t.y0]], ink, 1.2, 0.004);
 
   // ── paw pads on the waving paw ───────────────────────────────────────────
   // dark brown, dense, a little raised and glossy toward the top — like the photo
+  const padsFrom = out.length;
   fillOnSurface(
     out,
     1100,
@@ -677,6 +686,8 @@ export function buildDog(total: number): DogPoint[] {
     2,
   );
   for (const g of PAW_GAPS) strokeOnSurface(out, g, ink, 1.2, 0.004, 2);
+  // when the paw is put down its pads turn away from her (see LightDog): mark them
+  for (let i = padsFrom; i < out.length; i++) out[i].anim = ANIM_PAD;
 
   return out;
 }
