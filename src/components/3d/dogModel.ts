@@ -34,6 +34,9 @@ interface Ellipsoid {
   kind: 'e';
   c: V3;
   r: V3;
+  /** turned about Y, then tilted about Z (radians) — for the ears */
+  ry?: number;
+  rz?: number;
 }
 interface Cone {
   kind: 'c';
@@ -58,6 +61,34 @@ type Shape = (Ellipsoid | Cone) & {
 
 export const SHOULDER: V3 = [0.21, 0.17, 0.14];
 export const TAIL_BASE: V3 = [0.16, -0.3, -0.24];
+/** The tail's spine, base to tip, and its thickness along it (fluffiest in the middle). */
+// out behind the rump, then sweeping up in a long sickle curve to about shoulder height
+const TAIL_CURVE: V3[] = [TAIL_BASE, [0.24, -0.31, -0.42], [0.3, -0.14, -0.56], [0.33, 0.1, -0.6], [0.3, 0.3, -0.54], [0.23, 0.42, -0.45]];
+const TAIL_R = [0.045, 0.055, 0.056, 0.05, 0.038, 0.012];
+const TAIL_SAMPLES = (() => {
+  const pts: { p: THREE.Vector3; t: number }[] = [];
+  const n = TAIL_CURVE.length - 1;
+  for (let i = 0; i < n; i++)
+    for (let k = 0; k < 10; k++) {
+      const u = k / 10;
+      pts.push({ p: new THREE.Vector3(...TAIL_CURVE[i]).lerp(new THREE.Vector3(...TAIL_CURVE[i + 1]), u), t: (i + u) / n });
+    }
+  pts.push({ p: new THREE.Vector3(...TAIL_CURVE[n]), t: 1 });
+  return pts;
+})();
+/** 0 at the base of the tail, 1 at its tip — so the shader can make the tip lag like a whip. */
+function alongTail(p: THREE.Vector3): number {
+  let best = 0;
+  let bd = Infinity;
+  for (const s of TAIL_SAMPLES) {
+    const d = s.p.distanceToSquared(p);
+    if (d < bd) {
+      bd = d;
+      best = s.t;
+    }
+  }
+  return best;
+}
 
 const FEET: { c: V3; r: V3 }[] = [
   { c: [-0.25, -0.375, 0.18], r: [0.105, 0.058, 0.125] }, // back feet
@@ -72,9 +103,14 @@ const SHAPES: Shape[] = [
   { kind: 'e', c: [0.14, 0.5, 0.17], r: [0.13, 0.11, 0.12], col: 'cream', group: 0, k: 0.07, w: 1.6, fine: true },
   { kind: 'e', c: [0, 0.47, 0.25], r: [0.13, 0.095, 0.12], col: 'cream', group: 0, k: 0.06, w: 3, fine: true }, // muzzle
   { kind: 'e', c: [0, 0.74, 0.2], r: [0.08, 0.1, 0.08], col: 'pale', group: 0, k: 0.08, w: 0.8 }, // blaze between the eyes
-  // long floppy ears: tapering leaves hanging from the top of the head, thin across
-  { kind: 'c', a: [-0.29, 0.74, 0.05], b: [-0.41, 0.37, 0.13], r1: 0.125, r2: 0.085, flatZ: 2.3, col: 'deep', group: 0, k: 0.03, w: 3.2, fur: 'ear' },
-  { kind: 'c', a: [0.29, 0.74, 0.05], b: [0.41, 0.37, 0.13], r1: 0.125, r2: 0.085, flatZ: 2.3, col: 'deep', group: 0, k: 0.03, w: 3.2, fur: 'ear' },
+  // long floppy ears, like the photo: each grows out of the side of the head (a wide,
+  // soft root melting into it), flares out, and hangs down to a round, heavy lobe.
+  // Three flat, tilted ovals blended into one teardrop — no straight edges anywhere.
+  ...[-1, 1].flatMap((s): Shape[] => [
+    { kind: 'e', c: [s * 0.25, 0.76, 0.0], r: [0.11, 0.1, 0.07], ry: s * 0.9, rz: s * -0.3, col: 'deep', group: 0, k: 0.12, w: 1.4, fur: 'ear' },
+    { kind: 'e', c: [s * 0.35, 0.58, 0.05], r: [0.12, 0.17, 0.042], ry: s * 0.85, rz: s * -0.22, col: 'deep', group: 0, k: 0.07, w: 2.6, fur: 'ear' },
+    { kind: 'e', c: [s * 0.39, 0.42, 0.08], r: [0.115, 0.105, 0.045], ry: s * 0.8, rz: s * -0.12, col: 'deep', group: 0, k: 0.07, w: 2.4, fur: 'ear' },
+  ]),
   // neck and body
   { kind: 'c', a: [0, 0.4, -0.02], b: [0, 0.05, -0.04], r1: 0.2, r2: 0.29, col: 'gold', group: 0, k: 0.08 },
   { kind: 'e', c: [0, 0.02, -0.04], r: [0.29, 0.33, 0.27], col: 'gold', group: 0, k: 0.08 },
@@ -103,7 +139,10 @@ const SHAPES: Shape[] = [
   { kind: 'c', a: SHOULDER, b: [0.32, 0.44, 0.19], r1: 0.085, r2: 0.075, col: 'gold', group: 2, k: 0.05, w: 1.4 },
   { kind: 'e', c: [0.34, 0.52, 0.2], r: [0.105, 0.1, 0.07], col: 'cream', group: 2, k: 0.05, w: 3.2, fine: true },
   // fluffy tail curling up behind
-  { kind: 'c', a: TAIL_BASE, b: [0.44, -0.22, -0.3], r1: 0.065, r2: 0.045, col: 'deep', group: 1, k: 0.02 },
+  // a plumed tail: out from the rump, curving up in an S, the tip drooping a little
+  ...TAIL_CURVE.slice(1).map(
+    (b, i): Shape => ({ kind: 'c', a: TAIL_CURVE[i], b, r1: TAIL_R[i], r2: TAIL_R[i + 1], col: 'gold', group: 1, k: 0.06, w: 2.6 }),
+  ),
 ];
 
 const COLORS: Record<Col, THREE.Color> = {
@@ -114,10 +153,29 @@ const COLORS: Record<Col, THREE.Color> = {
 };
 
 // ── distance functions ────────────────────────────────────────────────────
+/** Into an ellipsoid's own (unrotated) frame: undo the Z tilt and the Y turn. */
+function toLocal(x: number, y: number, z: number, e: Ellipsoid): [number, number, number] {
+  let qx = x - e.c[0];
+  let qy = y - e.c[1];
+  let qz = z - e.c[2];
+  if (e.ry) {
+    const c = Math.cos(-e.ry);
+    const s = Math.sin(-e.ry);
+    [qx, qz] = [qx * c + qz * s, -qx * s + qz * c];
+  }
+  if (e.rz) {
+    const c = Math.cos(-e.rz);
+    const s = Math.sin(-e.rz);
+    [qx, qy] = [qx * c - qy * s, qx * s + qy * c];
+  }
+  return [qx, qy, qz];
+}
+
 function sdEllipsoid(x: number, y: number, z: number, e: Ellipsoid): number {
-  const px = (x - e.c[0]) / e.r[0];
-  const py = (y - e.c[1]) / e.r[1];
-  const pz = (z - e.c[2]) / e.r[2];
+  const [lx, ly, lz] = toLocal(x, y, z, e);
+  const px = lx / e.r[0];
+  const py = ly / e.r[1];
+  const pz = lz / e.r[2];
   const k0 = Math.hypot(px, py, pz);
   const k1 = Math.hypot(px / e.r[0], py / e.r[1], pz / e.r[2]);
   return (k0 * (k0 - 1)) / Math.max(k1, 1e-6);
@@ -245,7 +303,7 @@ const PAW_PADS: { c: [number, number]; r: [number, number] }[] = [
 const inPad = (x: number, y: number) => PAW_PADS.some((p) => ((x - p.c[0]) / p.r[0]) ** 2 + ((y - p.c[1]) / p.r[1]) ** 2 < 1);
 
 /** Gaps between toes, as short vertical lines on the front of each foot. */
-const TOE_GAPS = FEET.flatMap(({ c, r }) => [-0.44, 0, 0.44].map((k) => ({ x: c[0] + k * r[0], y0: c[1] - r[1] * 0.8, y1: c[1] + r[1] * 0.6, zMin: c[2] + r[2] * 0.4 })));
+const TOE_GAPS = FEET.flatMap(({ c, r }) => [-0.44, 0, 0.44].map((k) => ({ x: c[0] + k * r[0], y0: c[1] - r[1] * 0.75, y1: c[1] + r[1] * 0.1, zMin: c[2] + r[2] * 0.6 })));
 
 /** Is a (front-facing) fur point sitting where a dark detail will be drawn? */
 function carved(p: THREE.Vector3, g: Group): boolean {
@@ -265,10 +323,16 @@ export interface DogPoint {
   size: number;
 }
 
+const Y_AXIS = new THREE.Vector3(0, 1, 0);
+const Z_AXIS = new THREE.Vector3(0, 0, 1);
+
 function randomOnShape(s: Shape, out: THREE.Vector3): THREE.Vector3 {
   if (s.kind === 'e') {
     out.randomDirection();
-    return out.set(s.c[0] + out.x * s.r[0], s.c[1] + out.y * s.r[1], s.c[2] + out.z * s.r[2]);
+    out.set(out.x * s.r[0], out.y * s.r[1], out.z * s.r[2]);
+    if (s.rz) out.applyAxisAngle(Z_AXIS, s.rz);
+    if (s.ry) out.applyAxisAngle(Y_AXIS, s.ry);
+    return out.add(new THREE.Vector3(...s.c));
   }
   const t = Math.random();
   const a = new THREE.Vector3(...s.a);
@@ -356,11 +420,25 @@ export function buildDog(total: number): DogPoint[] {
       if (carved(p, s.group)) continue;
       let light = (Math.random() - 0.5) * 0.08 + (p.y > 0.8 ? 0.04 : 0);
       // long soft strands running down the ears
-      if (s.fur === 'ear') light += Math.sin(p.x * 95 + p.y * 7 + Math.sin(p.y * 18) * 1.4) > 0.3 ? -0.12 : 0.05;
+      if (s.fur === 'ear' && s.kind === 'e') {
+        const [lx, ly] = toLocal(p.x, p.y, p.z, s);
+        light += Math.sin(lx * 110 + Math.sin(ly * 16) * 1.6) > 0.3 ? -0.12 : 0.05;
+      }
+      const pt = p.clone();
+      let anim: number = s.group;
+      if (s.group === 1) {
+        const a = alongTail(pt);
+        anim = 1 + a * 0.49;
+        // feathery: a long fringe of fur streams out behind and below the tail, like the photo
+        normal(pt, 1, nTmp);
+        const fringe = Math.max(0, -nTmp.z * 0.8 - nTmp.y * 0.5);
+        pt.addScaledVector(nTmp, Math.pow(Math.random(), 1.6) * (0.012 + fringe * 0.07) * (0.5 + a));
+        light += a * 0.06 + (Math.sin(a * 60 + pt.x * 40) > 0.4 ? -0.08 : 0.03);
+      }
       out.push({
-        p: p.clone(),
+        p: pt,
         col: tint(COLORS[s.col], light),
-        anim: s.group,
+        anim,
         size: s.fine ? 0.8 + Math.random() * 0.7 : 1.1 + Math.pow(Math.random(), 3) * 1.6,
       });
       made++;
@@ -461,13 +539,15 @@ export interface Occluder {
   group: Group;
   position: V3;
   scale: V3;
+  /** [ry, rz]: turn about Y, then tilt about Z (Euler order 'YZX') */
+  rot?: [number, number];
 }
 export function occluders(): Occluder[] {
   const out: Occluder[] = [];
   for (const s of SHAPES) {
     if (s.group === 1) continue; // the thin tail hides nothing
     if (s.kind === 'e') {
-      out.push({ group: s.group, position: s.c, scale: [s.r[0] * 0.92, s.r[1] * 0.92, s.r[2] * 0.92] });
+      out.push({ group: s.group, position: s.c, scale: [s.r[0] * 0.92, s.r[1] * 0.92, s.r[2] * 0.92], rot: [s.ry ?? 0, s.rz ?? 0] });
     } else {
       for (let i = 0; i <= 5; i++) {
         const t = i / 5;

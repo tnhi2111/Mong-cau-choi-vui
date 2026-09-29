@@ -47,7 +47,15 @@ const vertex = /* glsl */ `
       target = rotZ(target, vec3(${SHOULDER.join(', ')}), wave * 0.32 * uMotion);
     }
     // wagging
-    if (aAnim > 0.5 && aAnim < 1.5) target = rotY(target, vec3(${TAIL_BASE.join(', ')}), sin(t * 7.0) * 0.45 * uMotion);
+    // a happy wag: the whole tail sweeps side to side from its root; further along it lags
+    // behind and swings wider, so it bends like a whip; bursts of wagging, then easier
+    if (aAnim > 0.5 && aAnim < 1.5) {
+      float along = (aAnim - 1.0) / 0.49;
+      float mood = 0.65 + 0.35 * sin(t * 0.45);
+      float ph = t * 9.5 - along * 1.7;
+      target = rotY(target, vec3(${TAIL_BASE.join(', ')}), sin(ph) * (0.3 + 0.45 * along) * mood * uMotion);
+      target.y += sin(ph + 1.3) * 0.02 * along * uMotion;
+    }
     // breathing
     target.y += sin(t * 1.7) * 0.006 * uMotion * (target.y + 0.42);
     target += vec3(sin(t * 0.9 + aSeed * 30.0), cos(t * 0.8 + aSeed * 17.0), sin(t * 0.7 + aSeed * 11.0)) * 0.003 * uMotion;
@@ -188,6 +196,7 @@ export function LightDog({ awake, visible, position, facing = 0, scale, density,
       material={occluder}
       position={[o.position[0] - origin[0], o.position[1] - origin[1], o.position[2] - origin[2]]}
       scale={o.scale}
+      rotation={o.rot ? new THREE.Euler(0, o.rot[0], o.rot[1], 'YZX') : undefined}
       renderOrder={-2}
     />
   );
