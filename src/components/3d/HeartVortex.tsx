@@ -9,7 +9,7 @@ import { fill } from '../../lib/text';
  * slowly turning spiral disc, with words drifting around the ring — as if the
  * heart were quietly filling a small galaxy of the things you want to say.
  *
- * The disc is tilted toward the viewer so it reads as a surface, not a line.
+ * The disc lies level; the camera looks down on it a little, so it reads as a surface.
  */
 
 interface Props {
@@ -278,8 +278,7 @@ export function HeartVortex({ tipY, drop = 0.7, radius = 1.15, words, visible, d
   return (
     <group ref={disc}>
       <points geometry={dripGeo} frustumCulled={false} material={dripMat} />
-      {/* tilted toward her so the disc reads as a surface */}
-      <group position={[0, bottom, 0]} rotation-x={0.2} scale={radius / 1.6}>
+      <group position={[0, bottom, 0]} scale={radius / 1.6}>
         <points geometry={discGeo} frustumCulled={false} material={discMat} />
         <group ref={wordRing}>
           <Words words={words} radius={1.6} opacity={opacity} />

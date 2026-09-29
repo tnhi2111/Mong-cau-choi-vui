@@ -7,6 +7,7 @@ import { getHeartGeometry, randomPointInHeart, heartCurvePoint } from './heartSh
 import { Heart3D } from './Heart3D';
 import { ParticleField } from './ParticleField';
 import { CameraRig } from './CameraRig';
+import { usePointerOrbit } from '../../hooks/usePointerOrbit';
 import { Glow } from './Glow';
 
 interface Props {
@@ -297,7 +298,16 @@ export function FinalWorld({ phase, photos, onFormed, reducedMotion, glass, part
   const t = useMemo(() => timing(reducedMotion), [reducedMotion]);
   const [isFormed, setIsFormed] = useState(false);
 
-  useFrame((state, dt) => {
+  // the finale can be walked around too: drag turns the camera round the whole scene
+  const orbit = usePointerOrbit({ enabled: true, sensitivity: 0.005, pitch: [-0.45, 0.6], zoom: [0.85, 1.2], friction: 2.2 });
+
+  useFrame((_, dt) => {
+    orbit.step(Math.min(dt, 0.05));
+    if (!orbit.dragging && orbit.idle() > 6 && !reducedMotion) {
+      // left alone, the world keeps turning slowly
+      orbit.tYaw += Math.min(dt, 0.05) * 0.06;
+      orbit.tPitch += (0 - orbit.tPitch) * (1 - Math.exp(-Math.min(dt, 0.05) * 0.4));
+    }
     // real time, but ignore huge gaps (tab in background). If the page already
     // moved on (very slow device → safety timeout), hurry the formation along.
     const hurry = phase !== 'gather' && !formed.current ? 4 : 1;
@@ -308,10 +318,6 @@ export function FinalWorld({ phase, photos, onFormed, reducedMotion, glass, part
       setIsFormed(true);
       setBurst((b) => b + 1);
       onFormed();
-    }
-    if (group.current) {
-      const target = reducedMotion ? 0 : Math.sin(state.clock.elapsedTime * 0.25) * 0.35;
-      group.current.rotation.y += (target - group.current.rotation.y) * Math.min(1, dt * 0.8);
     }
     if (coreGroup.current) {
       const s = THREE.MathUtils.smoothstep(T, t.drift + t.gather * 0.6, t.formed + 0.3);
@@ -340,6 +346,8 @@ export function FinalWorld({ phase, photos, onFormed, reducedMotion, glass, part
         lookAt={[0, lookY, 0]}
         parallax={reducedMotion ? 0 : 0.35}
         speed={isFormed ? 0.45 : 0.6}
+        orbit={orbit}
+        orbitCamera
       />
       <group ref={group} position={[0, frame.heartY, 0]}>
         <Glow ref={coreGlow} color="#ffc4cf" size={7} opacity={0} />

@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
 import type { Stage } from '../../types';
@@ -7,7 +7,7 @@ import { ParticleField } from './ParticleField';
 import { CameraRig } from './CameraRig';
 import { usePointerOrbit } from '../../hooks/usePointerOrbit';
 import { HeartVortex } from './HeartVortex';
-import { CatConstellation } from './CatConstellation';
+import { LightDog } from './LightDog';
 import { heartTipY } from './heartShape';
 import { birthdayConfig } from '../../config/birthday';
 
@@ -42,8 +42,9 @@ export function IntroWorld({
   const holder = useRef<THREE.Group>(null);
   const charge = stage === 'intro' ? Math.min(1, taps / tapsNeeded) : 1;
   const unlocked = stage === 'intro' && taps >= tapsNeeded;
-  // she can turn the heart in her hands only while it is the whole scene
-  const orbit = usePointerOrbit({ enabled: stage === 'intro', pitch: [-1.1, 1.1], zoom: [0.82, 1.2] });
+  // Dragging turns the camera around the whole scene — heart, ring, sky and the
+  // little companion all move together (only while the heart is the whole scene).
+  const orbit = usePointerOrbit({ enabled: stage === 'intro', sensitivity: 0.005, pitch: [-0.55, 0.75], zoom: [0.82, 1.2], friction: 2.2 });
 
   const heartPos: [number, number, number] =
     stage === 'intro'
@@ -64,14 +65,35 @@ export function IntroWorld({
   const ringR = portrait ? 1.05 : 1.3;
   const tip = heartTipY() * heartScale;
   // where the scattered light waits, in the heart's own space (it scales with the heart)
-  const ring = useMemo(() => ({ y: (tip - drop) / heartScale, radius: (ringR * 0.9) / heartScale, tilt: 0.2 }), [tip, drop, ringR, heartScale]);
+  const ring = useMemo(() => ({ y: (tip - drop) / heartScale, radius: (ringR * 0.9) / heartScale, tilt: 0 }), [tip, drop, ringR, heartScale]);
 
   const dist = portrait ? 1.3 : 1;
   // each beat draws the camera a little closer, the last one most of all
   const camZ = stage === 'intro' ? (6.4 - charge * 0.9 - (unlocked ? 0.5 : 0)) * dist : 6.6 * dist;
   if (stage !== 'intro') orbit.tZoom = 1;
 
+  // when the light gathers, the camera glides round to meet the heart face to face
+  const gathering = awake && stage === 'intro';
+  useEffect(() => {
+    if (!gathering) return;
+    orbit.steerYaw(0);
+    orbit.tPitch = 0;
+    orbit.lastInput = performance.now();
+  }, [gathering, orbit]);
+
   useFrame((_, dt) => {
+    orbit.step(Math.min(dt, 0.05));
+    if (stage !== 'intro') {
+      // the gate and the welcome are read head-on: glide back to the front
+      const home = Math.round(orbit.tYaw / (Math.PI * 2)) * Math.PI * 2;
+      const k = 1 - Math.exp(-Math.min(dt, 0.05) * 1.5);
+      orbit.tYaw += (home - orbit.tYaw) * k;
+      orbit.tPitch += (0 - orbit.tPitch) * k;
+    } else if (!orbit.dragging && orbit.idle() > 6 && !reducedMotion && (formed || !awake)) {
+      // left alone, the world keeps turning very slowly on its own
+      orbit.tYaw += Math.min(dt, 0.05) * 0.06;
+      orbit.tPitch += (0 - orbit.tPitch) * (1 - Math.exp(-Math.min(dt, 0.05) * 0.4));
+    }
     const h = holder.current;
     if (!h) return;
     const k = 1 - Math.exp(-Math.min(dt, 0.05) * 1.8);
@@ -86,6 +108,7 @@ export function IntroWorld({
         parallax={reducedMotion ? 0 : 0.22}
         speed={stage === 'intro' ? 1.1 : 1.5}
         orbit={orbit}
+        orbitCamera
       />
       <group ref={holder}>
         <Heart3D
@@ -98,7 +121,6 @@ export function IntroWorld({
           glass={glass}
           scale={heartScale}
           halo={stage === 'intro' ? 1 : 0.8}
-          orbit={orbit}
           particles={heartPoints}
           assembled={awake}
           onAssembled={() => setFormed(true)}
@@ -118,28 +140,30 @@ export function IntroWorld({
         )}
         {heartPoints > 0 && stage === 'intro' && !unlocked && ready && (
           // The heart of light has gaps, and the stream and ring beneath it belong to it too:
-          // an invisible panel behind them makes the whole figure answer a touch.
-          // (A tap on the heart itself is handled — and stopped — by the heart.)
+          // an invisible ball around the whole figure makes it answer a touch from any angle
+          // the world has been turned to. (A tap on the heart itself is handled by the heart.)
           <mesh
-            position={[0, -0.45, -0.9]}
+            position={[0, -0.3, 0]}
+            scale={[portrait ? 1.35 : 1.6, 1.75, portrait ? 1.35 : 1.6]}
             onClick={(e) => {
               e.stopPropagation();
               if (e.delta > 8 || orbit.travel > 10) return;
               onHeartTap();
             }}
           >
-            <planeGeometry args={[portrait ? 2.6 : 3.2, 3.6]} />
-            <meshBasicMaterial colorWrite={false} depthWrite={false} />
+            <sphereGeometry args={[1, 24, 16]} />
+            <meshBasicMaterial colorWrite={false} depthWrite={false} side={THREE.DoubleSide} />
           </mesh>
         )}
       </group>
       {lightHeart && (
-        // a little cat of light beside the heart — for her
-        <CatConstellation
+        // a little golden puppy of light beside the heart, waving hello
+        <LightDog
           awake={awake}
           visible={stage === 'intro'}
-          position={portrait ? [-0.72, 2.0, -0.5] : [2.45, -0.05, -0.4]}
-          scale={portrait ? 0.6 : 1.1}
+          position={portrait ? [-0.62, 1.9, -0.5] : [2.45, -0.4, -0.3]}
+          facing={portrait ? 0.25 : -0.35}
+          scale={portrait ? 0.72 : 1.3}
           density={Math.max(0.4, heartPoints / 9000)}
           reducedMotion={reducedMotion}
         />

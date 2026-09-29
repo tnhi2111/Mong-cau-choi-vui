@@ -58,7 +58,7 @@ function idlePulse(t: number): number {
   return g(c, 0.15, 0.09) + 0.6 * g(c, 0.45, 0.09);
 }
 
-const DEFAULT_RING: DormantRing = { y: -1.2, radius: 1.2, tilt: 0.2 };
+const DEFAULT_RING: DormantRing = { y: -1.2, radius: 1.2, tilt: 0 };
 
 const fineHover = () => typeof matchMedia !== 'undefined' && matchMedia('(hover: hover) and (pointer: fine)').matches;
 

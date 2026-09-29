@@ -87,6 +87,14 @@ try {
   await page.waitForTimeout(3500);
   // before the first touch: only scattered light (the heart of light), or the heart (glass style)
   await snap('dormant');
+  // turning before the first touch: the whole world must turn as one (no second ring left behind)
+  await drag(w * 0.7, h * 0.3, -w * 0.35, 0);
+  await page.waitForTimeout(700);
+  await snap('dormant-orbit');
+  await drag(w * 0.7, h * 0.3, -w * 0.35, 40);
+  await page.waitForTimeout(700);
+  await snap('dormant-orbit-2');
+  await page.waitForTimeout(2000);
   // first touch: the light gathers into a heart (~3.2 s), the sky wakes, the cat forms
   await tap(w / 2, h / 2);
   await page.waitForTimeout(1300);

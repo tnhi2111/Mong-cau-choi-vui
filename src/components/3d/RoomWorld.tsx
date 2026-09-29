@@ -130,6 +130,8 @@ export function RoomWorld({
     orbit.step(Math.min(dt, 0.05));
     if (!orbit.dragging && orbit.idle() > 5) {
       orbit.tPitch += (0 - orbit.tPitch) * (1 - Math.exp(-dt * 0.4));
+      // left alone, the room keeps turning slowly — but holds still while a gift opens or is read
+      if (!opening && !paused && !reducedMotion && !hoverId) orbit.tYaw += Math.min(dt, 0.05) * 0.05;
     }
   });
 
