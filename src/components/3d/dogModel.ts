@@ -47,7 +47,12 @@ interface Cone {
   /** squash in depth (for the thin ears: broad from the front, thin from the side) */
   flatZ?: number;
 }
-type Shape = (Ellipsoid | Cone) & {
+/** A long, flat, floppy ear: one continuous leaf (see earSd). */
+interface Ear {
+  kind: 'ear';
+  side: 1 | -1;
+}
+type Shape = (Ellipsoid | Cone | Ear) & {
   col: Col;
   group: Group;
   /** smooth-union radius when melting into the rest */
@@ -96,39 +101,73 @@ const FEET: { c: V3; r: V3 }[] = [
   { c: [-0.135, -0.37, 0.29], r: [0.095, 0.06, 0.105] }, // standing front paw
 ];
 
-/** The ear's spine (front view, right ear; mirrored for the left) and its half-width along it. */
-const EAR_PATH: V3[] = [
-  [0.2, 0.86, -0.03],
-  [0.3, 0.78, 0.01],
-  [0.36, 0.64, 0.05],
-  [0.385, 0.5, 0.08],
-  [0.375, 0.37, 0.1],
-  [0.34, 0.26, 0.11],
-];
-const EAR_W = [0.065, 0.09, 0.11, 0.11, 0.095, 0.06];
+/*
+ * The ear: one continuous flap of fur, like a golden retriever's — not a chain of blobs.
+ * It is a thin sheet hung from a curved spine: it grows out of the side of the head
+ * just above the eye, folds over and hangs down beside the cheek to below the jaw.
+ * Narrow at the root, widest two-thirds of the way down, a soft round bottom; the
+ * sheet turns from facing outward (at the root, wrapping round the skull) to facing
+ * half forward (lower down), and its edges curl in toward the head, so it has a body.
+ * Distances are measured in the sheet's own frame: v runs down the ear (0 → 1),
+ * u across it, h through its thickness.
+ */
+const EAR_TOP = 0.85;
+const EAR_BOTTOM = 0.2;
+const EAR_LEN = 0.68;
+const earX = (v: number) => 0.21 + 0.21 * Math.sin(Math.min(v / 0.5, 1) * Math.PI * 0.5) - 0.035 * Math.max(0, (v - 0.5) / 0.5) ** 2;
+const earZ = (v: number) => -0.035 + 0.15 * v - 0.03 * v * v;
+/** How far the sheet is turned to face forward (0 = straight out to the side). */
+const earTurn = (v: number) => 1.1 - 0.5 * v;
+/** Half-width across the ear: a leaf, round at the bottom. */
+const earW = (v: number) => {
+  const w = 0.118;
+  if (v < 0.62) return w * (0.42 + 0.58 * Math.sin((v / 0.62) * Math.PI * 0.5));
+  const t = (v - 0.62) / 0.38;
+  return w * Math.sqrt(Math.max(0, 1 - t * t));
+};
+/** Half-thickness: a little fuller at the root. */
+const earT = (v: number) => 0.024 - 0.01 * v;
+/** How much the edges curl in toward the head. */
+const EAR_CUP = 0.028;
 
-function earSegments(side: number): Shape[] {
-  const out: Shape[] = [];
-  for (let i = 0; i < EAR_PATH.length - 1; i++) {
-    const [x0, y0, z0] = EAR_PATH[i];
-    const [x1, y1, z1] = EAR_PATH[i + 1];
-    const len = Math.hypot(x1 - x0, y1 - y0);
-    out.push({
-      kind: 'e',
-      c: [side * (x0 + x1) / 2, (y0 + y1) / 2, (z0 + z1) / 2],
-      // wide across, long along the ear (overlapping its neighbours), thin in depth
-      r: [(EAR_W[i] + EAR_W[i + 1]) / 2, len * 0.72, 0.032],
-      // lie along the ear's direction, and face mostly forward, a little outward
-      rz: side * Math.atan2(x1 - x0, -(y1 - y0)),
-      ry: side * 0.45,
-      col: 'deep',
-      group: 0,
-      k: i === 0 ? 0.1 : 0.05,
-      w: 2.2,
-      fur: 'ear',
-    });
-  }
+interface EarFrame {
+  c: THREE.Vector3;
+  /** across the ear, and out of its face */
+  a: THREE.Vector3;
+  n: THREE.Vector3;
+}
+function earFrame(v: number, side: number, out: EarFrame): EarFrame {
+  const th = earTurn(v);
+  out.c.set(side * earX(v), EAR_TOP - v * (EAR_TOP - EAR_BOTTOM), earZ(v));
+  out.a.set(side * Math.cos(th), 0, -Math.sin(th));
+  out.n.set(side * Math.sin(th), 0, Math.cos(th));
   return out;
+}
+const earTmp: EarFrame = { c: new THREE.Vector3(), a: new THREE.Vector3(), n: new THREE.Vector3() };
+const dTmp = new THREE.Vector3();
+
+/** (u, v, h) of a point in the ear's frame — across, down, out of its face. */
+function earLocal(x: number, y: number, z: number, side: number): [number, number, number] {
+  const v = (EAR_TOP - y) / (EAR_TOP - EAR_BOTTOM);
+  const f = earFrame(THREE.MathUtils.clamp(v, 0, 1), side, earTmp);
+  dTmp.set(x, y, z).sub(f.c);
+  const u = dTmp.dot(f.a);
+  const w = Math.max(earW(THREE.MathUtils.clamp(v, 0, 1)), 1e-3);
+  // the edges curl in toward the head
+  const h = dTmp.dot(f.n) + EAR_CUP * Math.min(1, (u / w) ** 2);
+  return [u, v, h];
+}
+
+function sdEar(x: number, y: number, z: number, e: Ear): number {
+  const [u, v, h] = earLocal(x, y, z, e.side);
+  const vc = THREE.MathUtils.clamp(v, 0, 1);
+  const du = Math.abs(u) - earW(vc);
+  const dh = Math.abs(h) - earT(vc);
+  const dv = (Math.abs(v - 0.5) - 0.5) * EAR_LEN;
+  const qx = Math.max(du, 0);
+  const qy = Math.max(dh, 0);
+  const qz = Math.max(dv, 0);
+  return Math.hypot(qx, qy, qz) + Math.min(Math.max(du, dh, dv), 0);
 }
 
 /** Toe centres on the waving paw (front view). */
@@ -146,11 +185,10 @@ const SHAPES: Shape[] = [
   { kind: 'e', c: [0.14, 0.5, 0.17], r: [0.13, 0.11, 0.12], col: 'cream', group: 0, k: 0.07, w: 1.6, fine: true },
   { kind: 'e', c: [0, 0.47, 0.25], r: [0.13, 0.095, 0.12], col: 'cream', group: 0, k: 0.06, w: 3, fine: true }, // muzzle
   { kind: 'e', c: [0, 0.74, 0.2], r: [0.08, 0.1, 0.08], col: 'pale', group: 0, k: 0.08, w: 0.8 }, // blaze between the eyes
-  // long floppy ears, like the photo: a flat flap that grows from high on the side of
-  // the head and hangs straight down beside the cheek, past the jaw. Built from flat
-  // segments laid along the ear's own curve (each turned to follow it), so it reads as
-  // one long, soft leaf — narrow at the root, widest mid-way, a rounded tip below.
-  ...[-1, 1].flatMap((s): Shape[] => earSegments(s)),
+  // long floppy ears, like the photo: one flat, soft flap each, folding over from high on
+  // the side of the head and hanging down beside the cheek, past the jaw
+  { kind: 'ear', side: -1, col: 'deep', group: 0, k: 0.06, w: 3.2, fur: 'ear' },
+  { kind: 'ear', side: 1, col: 'deep', group: 0, k: 0.06, w: 3.2, fur: 'ear' },
   // neck and body
   { kind: 'c', a: [0, 0.4, -0.02], b: [0, 0.05, -0.04], r1: 0.2, r2: 0.29, col: 'gold', group: 0, k: 0.08 },
   { kind: 'e', c: [0, 0.02, -0.04], r: [0.29, 0.33, 0.27], col: 'gold', group: 0, k: 0.08 },
@@ -254,7 +292,8 @@ function sdRoundCone(x: number, y: number, z: number, s: Cone): number {
   return s.flatZ ? d / s.flatZ : d;
 }
 
-const sdShape = (x: number, y: number, z: number, s: Shape) => (s.kind === 'e' ? sdEllipsoid(x, y, z, s) : sdRoundCone(x, y, z, s));
+const sdShape = (x: number, y: number, z: number, s: Shape) =>
+  s.kind === 'e' ? sdEllipsoid(x, y, z, s) : s.kind === 'ear' ? sdEar(x, y, z, s) : sdRoundCone(x, y, z, s);
 
 function smin(a: number, b: number, k: number): number {
   const h = Math.max(k - Math.abs(a - b), 0) / k;
@@ -384,6 +423,15 @@ const Y_AXIS = new THREE.Vector3(0, 1, 0);
 const Z_AXIS = new THREE.Vector3(0, 0, 1);
 
 function randomOnShape(s: Shape, out: THREE.Vector3): THREE.Vector3 {
+  if (s.kind === 'ear') {
+    // anywhere on either face of the flap (or its rim), then settled onto the surface
+    const v = Math.random();
+    const f = earFrame(v, s.side, earTmp);
+    const w = earW(v);
+    const u = (Math.random() * 2 - 1) * w;
+    const h = (Math.random() < 0.5 ? -1 : 1) * earT(v) - EAR_CUP * Math.min(1, (u / Math.max(w, 1e-3)) ** 2);
+    return out.copy(f.c).addScaledVector(f.a, u).addScaledVector(f.n, h);
+  }
   if (s.kind === 'e') {
     out.randomDirection();
     out.set(out.x * s.r[0], out.y * s.r[1], out.z * s.r[2]);
@@ -403,6 +451,7 @@ function randomOnShape(s: Shape, out: THREE.Vector3): THREE.Vector3 {
 }
 
 function shapeArea(s: Shape): number {
+  if (s.kind === 'ear') return 2 * 2 * 0.118 * 0.72 * EAR_LEN; // both faces of the leaf
   if (s.kind === 'e') {
     const [a, b, c] = s.r;
     return 4 * Math.PI * Math.pow(((a * b) ** 1.6 + (a * c) ** 1.6 + (b * c) ** 1.6) / 3, 1 / 1.6);
@@ -472,14 +521,18 @@ export function buildDog(total: number): DogPoint[] {
       const own = sdShape(p.x, p.y, p.z, s);
       if (byGroup[s.group].some((o) => o !== s && sdShape(p.x, p.y, p.z, o) < own - 1e-4)) continue;
       // fine areas face her: most of their light goes on the front
-      const cz = s.kind === 'e' ? s.c[2] : (s.a[2] + s.b[2]) / 2;
+      const cz = s.kind === 'e' ? s.c[2] : s.kind === 'c' ? (s.a[2] + s.b[2]) / 2 : 0;
       if (s.fine && p.z < cz && Math.random() < 0.7) continue;
       if (carved(p, s.group)) continue;
       let light = (Math.random() - 0.5) * 0.08 + (p.y > 0.8 ? 0.04 : 0);
       // long soft strands running down the ears
-      if (s.fur === 'ear' && s.kind === 'e') {
-        const [lx, ly] = toLocal(p.x, p.y, p.z, s);
-        light += Math.sin(lx * 110 + Math.sin(ly * 16) * 1.6) > 0.3 ? -0.12 : 0.05;
+      if (s.kind === 'ear') {
+        const [u, v, h] = earLocal(p.x, p.y, p.z, s.side);
+        const edge = Math.abs(u) / Math.max(earW(THREE.MathUtils.clamp(v, 0, 1)), 1e-3);
+        // strands flowing down the flap, a lighter rim of fur at its edges, the inside darker
+        light += Math.sin(u * 120 + Math.sin(v * 9) * 2.2) > 0.35 ? -0.1 : 0.04;
+        light += edge > 0.82 || v > 0.9 ? 0.08 : 0;
+        if (h < 0) light -= 0.06;
       }
       const pt = p.clone();
       let anim: number = s.group;
@@ -524,6 +577,38 @@ export function buildDog(total: number): DogPoint[] {
       const y = 0.4 - i * 0.05;
       strokeOnSurface(out, quad([s * 0.2, y], [s * 0.235, y - 0.05], [s * 0.2, y - 0.1], 8), tint(bib, -0.04), 1, 0.01);
     }
+
+  // ── ears: a glowing rim round each flap and soft strands down its face ──
+  // (a figure of light shows a shape best by its outline — this is what makes the
+  // flap read as one long, flat, hanging ear from the front)
+  const earRim = new THREE.Color('#ffc46e');
+  const earStrand = new THREE.Color('#ffa347');
+  const onEar = (side: number, v: number, uf: number, lift: number) => {
+    const f = earFrame(v, side, earTmp);
+    const w = earW(v);
+    const u = uf * w;
+    const h = earT(v) + lift - EAR_CUP * Math.min(1, uf * uf);
+    return f.c.clone().addScaledVector(f.a, u).addScaledVector(f.n, h);
+  };
+  for (const side of [-1, 1]) {
+    // the rim: down one edge, round the bottom, up the other
+    const N = 150;
+    for (let i = 0; i <= N; i++) {
+      const t = i / N;
+      // t 0→1 walks the outline: v goes 0→1 along the front edge, then back up the rear edge
+      const v = t < 0.5 ? t * 2 : (1 - t) * 2;
+      const uf = t < 0.5 ? -1 : 1;
+      out.push({ p: onEar(side, Math.min(v, 0.995), uf * 0.96, 0.004), col: tint(earRim, (Math.random() - 0.5) * 0.06), anim: 0, size: 1.15 + Math.random() * 0.4 });
+    }
+    // strands flowing down the flap, fanning out a little toward its round bottom
+    for (const k of [-0.62, -0.3, 0, 0.3, 0.62])
+      for (let i = 0; i <= 60; i++) {
+        const v = 0.08 + (i / 60) * 0.86;
+        const uf = k * (0.9 + 0.1 * Math.sin(v * 7 + k * 5));
+        if (Math.abs(uf) * earW(v) > earW(v) * 0.9) continue;
+        out.push({ p: onEar(side, v, uf, 0.006), col: tint(earStrand, (Math.random() - 0.5) * 0.08), anim: 0, size: 0.9 + Math.random() * 0.4 });
+      }
+  }
 
   // ── eyes: brown iris, darker pupil, two catch-lights ─────────────────────
   for (const [ex, ey] of EYES) {
@@ -608,7 +693,19 @@ export function occluders(): Occluder[] {
   const out: Occluder[] = [];
   for (const s of SHAPES) {
     if (s.group === 1) continue; // the thin tail hides nothing
-    if (s.kind === 'e') {
+    if (s.kind === 'ear') {
+      // a row of flat discs along the flap
+      for (let i = 0; i < 7; i++) {
+        const v = (i + 0.5) / 7;
+        const f = earFrame(v, s.side, earTmp);
+        out.push({
+          group: s.group,
+          position: [f.c.x, f.c.y, f.c.z],
+          scale: [earW(v) * 0.85, EAR_LEN / 7 * 0.8, earT(v) * 0.6],
+          rot: [s.side * earTurn(v), 0],
+        });
+      }
+    } else if (s.kind === 'e') {
       out.push({ group: s.group, position: s.c, scale: [s.r[0] * 0.92, s.r[1] * 0.92, s.r[2] * 0.92], rot: [s.ry ?? 0, s.rz ?? 0] });
     } else {
       for (let i = 0; i <= 5; i++) {

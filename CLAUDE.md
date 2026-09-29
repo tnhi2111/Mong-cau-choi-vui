@@ -57,23 +57,22 @@ never `<shaderMaterial uniforms={…} />`.
 
 ## Where the last session stopped
 
-Last request from the owner (being worked on when they had to leave):
-> ears looked like two cotton puffs — make them like the photo (long flat flaps hanging
-> down beside the face); the raised waving paw should show grooves and real paw pads,
-> not a round lump.
+Last request from the owner:
+> the ears still look like circles stuck together — make them flat 3D ears hanging down
+> like a golden retriever's.
 
-Done in `dogModel.ts` (committed with this file):
-- ears: `EAR_PATH` / `EAR_W` + `earSegments()` — 5 flat segments laid along a curve,
-  hanging from high on the head to below the jaw;
-- waving paw: bigger flatter palm, 4 toes (`PAW_TOES`), three-lobed palm pad
-  (`inPalm`), toe pads (`inToePad`), gaps between toes (`PAW_GAPS`), dense brown pads.
+Done in `dogModel.ts`: each ear is now ONE shape (`kind: 'ear'`, `sdEar`) — a thin sheet
+hung from a curved spine (`earX`/`earZ`, `EAR_TOP`→`EAR_BOTTOM`), leaf-shaped width
+(`earW`: narrow root, widest ~60 % down, round bottom), thickness `earT`, turned from
+facing outward at the root to half-forward below (`earTurn`), edges curled in
+(`EAR_CUP`). On top: a bright rim round each flap and 5 strands down its face (in
+`buildDog`, "ears" section) — a figure of light reads a shape by its outline. Occluders
+for the ear are flat discs along it. Waving paw (toes, pads, gaps) unchanged from before.
 
-QA after this change: all passed (unit, visual, full flow desktop / mobile / reduced
-motion / `--nogl`, `qa:keyboard`, `qa:qr`). `qa:perf` now taps until each touch counts
-instead of fixed waits (a slow renderer gathers the heart more slowly). Without a GPU
-(cloud, SwiftShader) its "main thread blocked" number is noise (240–3000 ms on both
-this and the previous commit) — only trust it with `--gpu`; the shader check passes.
-The owner has been sent close-ups of the new ears/paw — waiting for their feedback.
+QA after this change (cloud, no GPU): unit, full flow desktop / 390×844 touch / `--nogl`,
+`qa:keyboard` passed. `qa:perf` taps until each touch counts; without a GPU its "main
+thread blocked" number is noise (240–3000 ms on old and new commits alike) — trust it
+only with `--gpu`. The owner has been sent close-ups of the new ears — waiting for feedback.
 
 Ideas the owner may ask for next (not requested yet): ears even closer to the photo
 (slimmer, wavier fur fringe at the bottom), the puppy turned so the tail shows from
