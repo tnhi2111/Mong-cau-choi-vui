@@ -29,38 +29,95 @@ interface Part {
   anim?: number;
   /** relative point density */
   w?: number;
+  /** fur texture: faint strands in the colour (ears, chest) */
+  fur?: 'ear' | 'chest';
+  /** fine detail: smaller, denser points so small shapes stay crisp */
+  fine?: boolean;
 }
 
 // ── the puppy, ~1.45 units tall, sitting, facing +z, feet at y ≈ -0.42 ──────
+const BACK_FEET: { c: V3; r: V3 }[] = [
+  { c: [-0.25, -0.38, 0.16], r: [0.1, 0.055, 0.12] },
+  { c: [0.25, -0.38, 0.16], r: [0.1, 0.055, 0.12] },
+];
+const FRONT_PAW = { c: [-0.13, -0.37, 0.28] as V3, r: [0.095, 0.06, 0.1] as V3 };
+const FEET = [...BACK_FEET, FRONT_PAW];
+
+/** Four rounded toes along the front of each standing foot. */
+const TOES: Part[] = FEET.flatMap(({ c, r }) =>
+  [-0.66, -0.22, 0.22, 0.66].map(
+    (k): Part => ({
+      c: [c[0] + k * r[0], c[1] - r[1] * 0.1, c[2] + r[2] * 0.92],
+      r: [r[0] * 0.25, r[1] * 0.85, 0.055],
+      col: 'cream',
+      w: 3.2,
+      fine: true,
+    }),
+  ),
+);
+
 const PARTS: Part[] = [
-  { c: [0, 0.62, 0.02], r: [0.34, 0.3, 0.3], col: 'gold', w: 1.2 }, // head
-  { c: [0, 0.5, 0.26], r: [0.17, 0.12, 0.13], col: 'cream', w: 1.4 }, // muzzle
+  { c: [0, 0.62, 0.02], r: [0.34, 0.3, 0.3], col: 'gold', w: 2.2 }, // head
+  { c: [0, 0.5, 0.26], r: [0.17, 0.12, 0.13], col: 'cream', w: 4, fine: true }, // muzzle
   { c: [0, 0.73, 0.2], r: [0.09, 0.12, 0.1], col: 'cream', w: 0.8 }, // forehead blaze
-  { c: [0, 0.42, 0.33], r: [0.055, 0.045, 0.03], col: 'pink', w: 2.2 }, // tongue
-  { c: [-0.31, 0.5, -0.02], r: [0.1, 0.23, 0.08], col: 'deep' }, // ears, flopped down
-  { c: [0.31, 0.5, -0.02], r: [0.1, 0.23, 0.08], col: 'deep' },
+  { c: [-0.31, 0.5, -0.02], r: [0.1, 0.23, 0.08], col: 'deep', fur: 'ear', w: 1.4 }, // ears, flopped down
+  { c: [0.31, 0.5, -0.02], r: [0.1, 0.23, 0.08], col: 'deep', fur: 'ear', w: 1.4 },
   { c: [0, 0.06, -0.02], r: [0.3, 0.36, 0.28], col: 'gold' }, // body
-  { c: [0, 0.2, 0.17], r: [0.19, 0.24, 0.13], col: 'cream', w: 1.3 }, // chest fluff
+  { c: [0, 0.2, 0.17], r: [0.19, 0.24, 0.13], col: 'cream', fur: 'chest', w: 1.4 }, // chest fluff
   { c: [-0.22, -0.22, -0.02], r: [0.17, 0.17, 0.21], col: 'gold' }, // haunches
   { c: [0.22, -0.22, -0.02], r: [0.17, 0.17, 0.21], col: 'gold' },
-  { c: [-0.25, -0.38, 0.16], r: [0.1, 0.055, 0.12], col: 'cream', w: 1.3 }, // back feet
-  { c: [0.25, -0.38, 0.16], r: [0.1, 0.055, 0.12], col: 'cream', w: 1.3 },
-  { c: [-0.12, -0.14, 0.17], r: [0.08, 0.22, 0.08], col: 'gold' }, // front leg (standing)
-  { c: [-0.12, -0.37, 0.23], r: [0.085, 0.055, 0.1], col: 'cream', w: 1.3 }, // its paw
+  ...BACK_FEET.map((f): Part => ({ ...f, col: 'cream', w: 2.2, fine: true })), // back feet
+  { c: [-0.13, -0.12, 0.22], r: [0.085, 0.24, 0.085], col: 'gold', w: 1.3 }, // front leg (standing)
+  { ...FRONT_PAW, col: 'cream', w: 2.2, fine: true }, // its paw
+  ...TOES,
   { c: [0.27, 0.3, 0.15], r: [0.08, 0.19, 0.08], col: 'gold', anim: 2 }, // waving arm
-  { c: [0.34, 0.5, 0.2], r: [0.1, 0.1, 0.07], col: 'cream', anim: 2, w: 1.5 }, // waving paw
+  { c: [0.34, 0.5, 0.2], r: [0.1, 0.1, 0.07], col: 'cream', anim: 2, w: 4, fine: true }, // waving paw
   { c: [0.33, -0.3, -0.26], r: [0.2, 0.065, 0.07], col: 'deep', anim: 1 }, // tail
 ];
 
-/** Carved out: points inside these are removed (and a catch-light added for eyes). */
-const HOLES: { c: V3; r: V3; light?: V3 }[] = [
-  { c: [-0.125, 0.665, 0.26], r: [0.07, 0.075, 0.08], light: [-0.105, 0.69, 0.33] }, // big round eyes
-  { c: [0.125, 0.665, 0.26], r: [0.07, 0.075, 0.08], light: [0.145, 0.69, 0.33] },
-  { c: [0, 0.55, 0.38], r: [0.06, 0.042, 0.05], light: [0.015, 0.565, 0.43] }, // nose
-  { c: [0.34, 0.5, 0.27], r: [0.045, 0.04, 0.04] }, // paw pad (palm)
-  { c: [0.29, 0.57, 0.26], r: [0.022, 0.022, 0.04] }, // toe pads
-  { c: [0.34, 0.59, 0.26], r: [0.022, 0.022, 0.04] },
-  { c: [0.39, 0.57, 0.26], r: [0.022, 0.022, 0.04] },
+/** The tongue hangs out of the open mouth — drawn after the carving, so nothing cuts it. */
+const TONGUE: Part = { c: [0, 0.4, 0.37], r: [0.045, 0.052, 0.024], col: 'pink', w: 3, fine: true };
+
+// Face and paw details. A glowing figure shows darkness as *absence of light*, so these
+// are carved out of the fur and then filled with a few dim, dark-brown points (ink).
+type Hole = { c: V3; r: V3; anim?: number };
+const EYES: V3[] = [
+  [-0.125, 0.665, 0.26],
+  [0.125, 0.665, 0.26],
+];
+const NOSE: Hole = { c: [0, 0.552, 0.378], r: [0.082, 0.056, 0.055] };
+const MOUTH: Hole = { c: [0, 0.428, 0.355], r: [0.07, 0.038, 0.06] };
+const PADS: Hole[] = [
+  { c: [0.34, 0.485, 0.27], r: [0.046, 0.036, 0.04], anim: 2 }, // palm pad
+  { c: [0.285, 0.548, 0.265], r: [0.019, 0.021, 0.04], anim: 2 }, // toe pads
+  { c: [0.32, 0.578, 0.265], r: [0.019, 0.021, 0.04], anim: 2 },
+  { c: [0.36, 0.578, 0.265], r: [0.019, 0.021, 0.04], anim: 2 },
+  { c: [0.395, 0.548, 0.265], r: [0.019, 0.021, 0.04], anim: 2 },
+];
+const HOLES: Hole[] = [...EYES.map((c) => ({ c, r: [0.07, 0.075, 0.08] as V3 })), NOSE, MOUTH, ...PADS];
+
+/** Thin carved lines: the mouth (from the nose down, then a smile each side) and the gaps between toes. */
+type Groove = { pts: V3[]; w: number };
+const smile = (side: number): V3[] =>
+  Array.from({ length: 7 }, (_, i) => {
+    const t = i / 6;
+    return [side * t * 0.105, 0.462 - Math.sin(t * Math.PI * 0.8) * 0.03 + t * t * 0.02, 0.385 - t * t * 0.05];
+  });
+const GROOVES: Groove[] = [
+  { pts: [[0, 0.5, 0.392], [0, 0.462, 0.388]], w: 0.015 },
+  { pts: smile(-1), w: 0.015 },
+  { pts: smile(1), w: 0.015 },
+  ...FEET.flatMap(({ c, r }) =>
+    [-0.44, 0, 0.44].map(
+      (k): Groove => ({
+        pts: [
+          [c[0] + k * r[0], c[1] + r[1] * 0.75, c[2] + r[2] * 0.7],
+          [c[0] + k * r[0], c[1] - r[1] * 0.7, c[2] + r[2] * 1.2],
+        ],
+        w: 0.017,
+      }),
+    ),
+  ),
 ];
 
 const SHOULDER: V3 = [0.22, 0.14, 0.13];
@@ -72,6 +129,8 @@ const COLORS: Record<Part['col'], THREE.Color> = {
   cream: new THREE.Color('#fff0d4'),
   pink: new THREE.Color('#ff6f96'),
 };
+const INK = new THREE.Color('#b0603c');
+const PAD = new THREE.Color('#e27470');
 
 const inside = (p: THREE.Vector3, c: V3, r: V3, grow = 1) => {
   const x = (p.x - c[0]) / (r[0] * grow);
@@ -80,32 +139,93 @@ const inside = (p: THREE.Vector3, c: V3, r: V3, grow = 1) => {
   return x * x + y * y + z * z < 1;
 };
 
+const seg = new THREE.Line3();
+const closest = new THREE.Vector3();
+function nearGroove(p: THREE.Vector3, g: Groove): boolean {
+  for (let i = 1; i < g.pts.length; i++) {
+    seg.set(new THREE.Vector3(...g.pts[i - 1]), new THREE.Vector3(...g.pts[i]));
+    seg.closestPointToPoint(p, true, closest);
+    if (closest.distanceTo(p) < g.w) return true;
+  }
+  return false;
+}
+
+type DogPoint = { p: THREE.Vector3; col: THREE.Color; anim: number; size: number };
+
+/** Fill an ellipse on the front of a carved hole with dim points (nose, pads, irises). */
+function fillHole(out: DogPoint[], h: Hole, col: THREE.Color, n: number, skip?: (x: number, y: number) => boolean) {
+  for (let k = 0; k < n; k++) {
+    const a = Math.random() * Math.PI * 2;
+    const rr = Math.sqrt(Math.random()) * 0.85;
+    const x = h.c[0] + Math.cos(a) * h.r[0] * rr;
+    const y = h.c[1] + Math.sin(a) * h.r[1] * rr;
+    if (skip?.(x, y)) continue;
+    const c = col.clone().offsetHSL(0, 0, (Math.random() - 0.5) * 0.06);
+    out.push({ p: new THREE.Vector3(x, y, h.c[2] + h.r[2] * 0.72), col: c, anim: h.anim ?? 0, size: 1.1 + Math.random() * 0.9 });
+  }
+}
+
 function buildDog(total: number) {
-  const areas = PARTS.map((p) => (p.w ?? 1) * Math.pow((p.r[0] * p.r[1]) ** 1.6 + (p.r[0] * p.r[2]) ** 1.6 + (p.r[1] * p.r[2]) ** 1.6, 1 / 1.6));
+  const parts = [...PARTS, TONGUE];
+  const areas = parts.map((p) => (p.w ?? 1) * Math.pow((p.r[0] * p.r[1]) ** 1.6 + (p.r[0] * p.r[2]) ** 1.6 + (p.r[1] * p.r[2]) ** 1.6, 1 / 1.6));
   const sum = areas.reduce((a, b) => a + b, 0);
-  const out: { p: THREE.Vector3; col: THREE.Color; anim: number; size: number }[] = [];
+  const out: DogPoint[] = [];
   const v = new THREE.Vector3();
-  PARTS.forEach((part, i) => {
+  const solid = (o: Part) => o.col !== 'pink' && o.anim !== 2;
+  parts.forEach((part, i) => {
     const want = Math.round((areas[i] / sum) * total);
+    const tongue = part === TONGUE;
     let made = 0;
     let tries = 0;
-    while (made < want && tries < want * 12) {
+    while (made < want && tries < want * 14) {
       tries++;
       v.randomDirection();
+      // detail parts face her: put most of their light on the front, where the features are
+      if (part.fine && v.z < 0.1 && Math.random() < 0.75) continue;
       const p = new THREE.Vector3(part.c[0] + v.x * part.r[0], part.c[1] + v.y * part.r[1], part.c[2] + v.z * part.r[2]);
-      // keep only the outer surface of the union — skip points buried in another part
-      // (the tongue and the paw sit on top of everything, so nothing hides them)
-      if (part.col !== 'pink' && part.anim !== 2 && PARTS.some((o, j) => j !== i && o.col !== 'pink' && o.anim !== 2 && inside(p, o.c, o.r, 0.97))) continue;
-      if (HOLES.some((h) => inside(p, h.c, h.r))) continue;
+      if (tongue) {
+        // only the front of the tongue shows, and not above the mouth line
+        if (v.z < -0.2 || p.y > 0.43) continue;
+      } else {
+        // keep only the outer surface of the union — skip points buried in another part
+        if (solid(part) && parts.some((o, j) => j !== i && solid(o) && inside(p, o.c, o.r, 0.97))) continue;
+        if (HOLES.some((h) => inside(p, h.c, h.r))) continue;
+        if (GROOVES.some((g) => nearGroove(p, g))) continue;
+      }
       const col = COLORS[part.col].clone();
       // a touch of variation, and the top of the head a little lighter
-      col.offsetHSL((Math.random() - 0.5) * 0.02, 0, (Math.random() - 0.5) * 0.08 + (p.y > 0.8 ? 0.04 : 0));
-      out.push({ p, col, anim: part.anim ?? 0, size: 1.1 + Math.pow(Math.random(), 3) * 1.6 });
+      let light = (Math.random() - 0.5) * 0.08 + (p.y > 0.8 ? 0.04 : 0);
+      // fur: long soft strands running down the ears, feathered waves on the chest
+      if (part.fur === 'ear') light += Math.sin((p.x - part.c[0]) * 70 + p.y * 9) > 0.35 ? -0.1 : 0.05;
+      if (part.fur === 'chest') light += Math.sin(p.x * 55 + Math.sin(p.y * 22) * 2.2) > 0.5 ? 0.06 : -0.06;
+      col.offsetHSL((Math.random() - 0.5) * 0.02, 0, light);
+      out.push({ p, col, anim: part.anim ?? 0, size: part.fine ? 0.8 + Math.random() * 0.7 : 1.1 + Math.pow(Math.random(), 3) * 1.6 });
       made++;
     }
   });
-  // catch-lights in the eyes and on the nose
-  for (const h of HOLES) if (h.light) out.push({ p: new THREE.Vector3(...h.light), col: new THREE.Color('#ffffff'), anim: 0, size: 4.5 });
+
+  // dark details: irises, the nose (with two nostrils), the inside of the mouth, the grooves
+  for (const c of EYES) fillHole(out, { c, r: [0.062, 0.066, 0.08] }, new THREE.Color('#8c4526'), 170);
+  const nostril = (x: number, y: number) => [-1, 1].some((s) => ((x - s * 0.03) / 0.016) ** 2 + ((y - 0.54) / 0.011) ** 2 < 1);
+  fillHole(out, NOSE, new THREE.Color('#9a4a30'), 380, nostril);
+  fillHole(out, { c: [MOUTH.c[0], MOUTH.c[1] + 0.008, MOUTH.c[2]], r: [MOUTH.r[0], MOUTH.r[1] * 0.6, MOUTH.r[2]] }, new THREE.Color('#8a2e38'), 120);
+  for (const g of GROOVES)
+    for (let i = 1; i < g.pts.length; i++) {
+      const a = new THREE.Vector3(...g.pts[i - 1]);
+      const b = new THREE.Vector3(...g.pts[i]);
+      const n = Math.ceil(a.distanceTo(b) / 0.004);
+      for (let k = 0; k <= n; k++) out.push({ p: a.clone().lerp(b, k / n), col: INK.clone(), anim: 0, size: 1.5 });
+    }
+  // soft pink-brown paw pads on the waving paw
+  for (const h of PADS) fillHole(out, h, PAD, h.r[0] > 0.03 ? 90 : 26);
+
+  // catch-lights: eyes and the top of the nose
+  const lights: V3[] = [
+    [-0.1, 0.69, 0.335],
+    [0.15, 0.69, 0.335],
+    [0.016, 0.568, 0.425],
+  ];
+  for (const l of lights) out.push({ p: new THREE.Vector3(...l), col: new THREE.Color('#ffffff'), anim: 0, size: 4.5 });
   return out;
 }
 
@@ -198,7 +318,7 @@ export function LightDog({ awake, visible, position, facing = 0, scale, density,
   const shown = useRef(visible ? 1 : 0);
 
   const points = useMemo(() => {
-    const dog = buildDog(Math.round(6500 * density));
+    const dog = buildDog(Math.round(11000 * density));
     const extra = Math.round(260 * density);
     const n = dog.length + extra;
     const pos = new Float32Array(n * 3);
@@ -257,6 +377,7 @@ export function LightDog({ awake, visible, position, facing = 0, scale, density,
     [occluder, sphere],
   );
   const body = useRef<THREE.Group>(null);
+  const arm = useRef<THREE.Group>(null);
 
   useFrame((state, rawDt) => {
     const dt = Math.min(rawDt, 0.05);
@@ -269,6 +390,12 @@ export function LightDog({ awake, visible, position, facing = 0, scale, density,
     if (group.current) group.current.visible = shown.current > 0.01;
     // the body only exists once the light has gathered into it
     if (body.current) body.current.visible = awakeP.current > 0.85 && shown.current > 0.5;
+    // the waving arm's hidden body follows the same wave as its light (see the shader)
+    if (arm.current) {
+      const t = state.clock.elapsedTime;
+      const wave = Math.sin(t * 5.5) * THREE.MathUtils.smoothstep(Math.sin(t * 0.9), -0.2, 0.4);
+      arm.current.rotation.z = wave * 0.32 * uniforms.uMotion.value;
+    }
   });
 
   return (
@@ -277,6 +404,18 @@ export function LightDog({ awake, visible, position, facing = 0, scale, density,
         {PARTS.filter((p) => !p.anim && p.col !== 'pink').map((p, i) => (
           <mesh key={i} geometry={sphere} material={occluder} position={p.c} scale={[p.r[0] * 0.93, p.r[1] * 0.93, p.r[2] * 0.93]} renderOrder={-2} />
         ))}
+        <group ref={arm} position={SHOULDER}>
+          {PARTS.filter((p) => p.anim === 2).map((p, i) => (
+            <mesh
+              key={i}
+              geometry={sphere}
+              material={occluder}
+              position={[p.c[0] - SHOULDER[0], p.c[1] - SHOULDER[1], p.c[2] - SHOULDER[2]]}
+              scale={[p.r[0] * 0.9, p.r[1] * 0.9, p.r[2] * 0.9]}
+              renderOrder={-2}
+            />
+          ))}
+        </group>
       </group>
       <points geometry={points} material={material} frustumCulled={false} renderOrder={-1} />
     </group>

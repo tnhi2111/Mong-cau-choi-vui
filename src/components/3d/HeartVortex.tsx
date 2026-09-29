@@ -25,31 +25,56 @@ interface Props {
   reducedMotion: boolean;
   /** Light drips from the tip only once there is a heart to drip from. */
   drip?: boolean;
+  /**
+   * Turning true (the first touch) replays the ring's birth: it goes dark, then band
+   * after band of light is drawn round, smallest first. Already true on mount → no replay.
+   */
+  reveal?: boolean;
 }
 
 const DISC_COLORS = ['#ff4d8d', '#ff7aa8', '#ffa9c6', '#ffd3e2', '#fff0f5', '#ff9aa0'];
+
+/** The ring's concentric bands of light (radius, in disc units). */
+export const BANDS = 6;
+const bandRadius = (b: number) => 0.32 + b * 0.2;
 
 const discVertex = /* glsl */ `
   uniform float uTime;
   uniform float uOpacity;
   uniform float uPixelRatio;
   uniform float uMotion;
+  uniform float uReveal;   // seconds since the first touch (large = fully shown)
   attribute float aR;
   attribute float aA;
   attribute float aSeed;
+  attribute float aBand;   // which band (0 = innermost)
+  attribute float aDust;   // 1 = loose dust between the bands
   attribute vec3 aColor;
   varying vec3 vColor;
   varying float vAlpha;
+  const float TAU = 6.2831853;
   void main() {
-    // inner rings turn faster — a gentle galaxy, not a spinning plate
-    float a = aA + uTime * uMotion * (0.12 + 0.28 / (0.45 + aR));
+    // inner bands turn faster; neighbouring bands turn opposite ways, so each reads on its own
+    float dir = aDust > 0.5 ? 1.0 : (mod(aBand, 2.0) < 0.5 ? 1.0 : -0.75);
+    float a = aA + uTime * uMotion * dir * (0.28 + 0.6 / (0.45 + aR));
     vec3 p = vec3(sin(a) * aR, sin(uTime * 0.8 + aSeed * 30.0) * 0.015, cos(a) * aR);
+
+    // birth: each band is drawn round like a comet, one after another, smallest first
+    float start = 0.45 + aBand * 0.42;
+    float grow = clamp((uReveal - start) / 0.85, 0.0, 1.0);
+    float along = mod(aA, TAU) / TAU;         // where on its band this point sits (0..1)
+    float drawn = aDust > 0.5
+      ? smoothstep(start + 1.4, start + 2.6, uReveal)
+      : step(along, grow);
+    // the comet head: brightest just behind the front of the growing arc
+    float head = aDust > 0.5 ? 0.0 : (1.0 - smoothstep(0.0, 0.12, grow - along)) * step(along, grow) * (1.0 - step(0.999, grow));
+
     vec4 mv = modelViewMatrix * vec4(p, 1.0);
     gl_Position = projectionMatrix * mv;
-    gl_PointSize = (1.3 + aSeed * 2.6) * uPixelRatio * (10.0 / -mv.z);
-    float edge = smoothstep(0.15, 0.45, aR) * (1.0 - smoothstep(1.3, 1.45, aR));
-    vAlpha = edge * uOpacity * (0.7 + 0.3 * sin(uTime * (1.0 + aSeed * 2.0) + aSeed * 50.0));
-    vColor = aColor;
+    gl_PointSize = (1.3 + aSeed * 2.6) * uPixelRatio * (10.0 / -mv.z) * (1.0 + head * 1.6);
+    float edge = smoothstep(0.15, 0.3, aR) * (1.0 - smoothstep(1.4, 1.55, aR));
+    vAlpha = edge * uOpacity * drawn * (0.7 + 0.3 * sin(uTime * (1.0 + aSeed * 2.0) + aSeed * 50.0)) * (1.0 + head * 1.5);
+    vColor = mix(aColor, vec3(1.0, 0.95, 0.97), head * 0.7);
   }
 `;
 
@@ -186,11 +211,15 @@ function Words({ words, radius, opacity }: { words: readonly string[]; radius: n
   );
 }
 
-export function HeartVortex({ tipY, drop = 0.7, radius = 1.15, words, visible, density, reducedMotion, drip = true }: Props) {
+export function HeartVortex({ tipY, drop = 0.7, radius = 1.15, words, visible, density, reducedMotion, drip = true, reveal = true }: Props) {
   const disc = useRef<THREE.Group>(null);
   const wordRing = useRef<THREE.Group>(null);
   const opacity = useRef(0);
   const dripOn = useRef(0);
+  // when the ring's birth began (null: never — it is simply there)
+  const revealStart = useRef<number | null>(null);
+  const wasRevealed = useRef(reveal);
+  const wordShow = useRef({ current: 0 });
   const discCount = Math.round(2600 * density);
   const dripCount = Math.round(260 * density);
   const bottom = tipY - drop;
@@ -200,16 +229,21 @@ export function HeartVortex({ tipY, drop = 0.7, radius = 1.15, words, visible, d
     const r = new Float32Array(discCount);
     const a = new Float32Array(discCount);
     const seed = new Float32Array(discCount);
+    const band = new Float32Array(discCount);
+    const dust = new Float32Array(discCount);
     const color = new Float32Array(discCount * 3);
     const c = new THREE.Color();
     for (let i = 0; i < discCount; i++) {
-      // most of the light gathers in a ring where the words drift; a fainter swirl fills the middle
-      const ring = Math.random() < 0.6;
-      const rr = ring ? 1.05 + (Math.random() - 0.5) * 0.55 : 0.2 + Math.pow(Math.random(), 0.8) * 1.3;
+      // most of the light forms bands; a little loose dust drifts between them
+      const isDust = Math.random() < 0.22;
+      const b = (Math.random() * BANDS) | 0;
+      // outer bands are longer, so they get proportionally more light
+      const bb = isDust ? b : Math.min(BANDS - 1, Math.floor(Math.sqrt(Math.random()) * BANDS));
+      const rr = isDust ? 0.25 + Math.random() * 1.2 : bandRadius(bb) + (Math.random() + Math.random() - 1) * 0.035;
       r[i] = rr;
-      // many soft, overlapping spiral arms — a swirl, not a pinwheel
-      const arm = (i % 6) * ((Math.PI * 2) / 6);
-      a[i] = arm + Math.log(rr + 0.2) * 1.8 + (Math.random() - 0.5) * 1.6;
+      a[i] = Math.random() * Math.PI * 2;
+      band[i] = bb;
+      dust[i] = isDust ? 1 : 0;
       seed[i] = Math.random();
       c.set(DISC_COLORS[(Math.random() * DISC_COLORS.length) | 0]);
       color.set([c.r, c.g, c.b], i * 3);
@@ -219,6 +253,8 @@ export function HeartVortex({ tipY, drop = 0.7, radius = 1.15, words, visible, d
     g.setAttribute('aR', new THREE.BufferAttribute(r, 1));
     g.setAttribute('aA', new THREE.BufferAttribute(a, 1));
     g.setAttribute('aSeed', new THREE.BufferAttribute(seed, 1));
+    g.setAttribute('aBand', new THREE.BufferAttribute(band, 1));
+    g.setAttribute('aDust', new THREE.BufferAttribute(dust, 1));
     g.setAttribute('aColor', new THREE.BufferAttribute(color, 3));
     return g;
   }, [discCount]);
@@ -252,7 +288,7 @@ export function HeartVortex({ tipY, drop = 0.7, radius = 1.15, words, visible, d
     [discGeo, dripGeo],
   );
 
-  const discU = usePointUniforms(reducedMotion);
+  const discU = usePointUniforms(reducedMotion, { uReveal: { value: 999 } });
   const dripU = usePointUniforms(reducedMotion, { uTop: { value: tipY + 0.05 }, uBottom: { value: bottom } });
 
   useFrame((state, rawDt) => {
@@ -267,9 +303,15 @@ export function HeartVortex({ tipY, drop = 0.7, radius = 1.15, words, visible, d
       u.uMotion.value = motion;
     }
     dripU.uOpacity.value = opacity.current * dripOn.current;
+    if (reveal && !wasRevealed.current) revealStart.current = t;
+    wasRevealed.current = reveal;
+    const since = revealStart.current === null ? 999 : (t - revealStart.current) * (reducedMotion ? 3 : 1);
+    discU.uReveal.value = since;
+    // the words come back once the last band has been drawn
+    wordShow.current.current = opacity.current * THREE.MathUtils.smoothstep(since, 0.45 + BANDS * 0.42, 1.2 + BANDS * 0.42);
     dripU.uTop.value = tipY + 0.05;
     dripU.uBottom.value = bottom;
-    if (wordRing.current) wordRing.current.rotation.y = t * 0.08 * motion;
+    if (wordRing.current) wordRing.current.rotation.y = t * 0.2 * motion;
     if (disc.current) disc.current.visible = opacity.current > 0.01;
   });
 
@@ -281,7 +323,7 @@ export function HeartVortex({ tipY, drop = 0.7, radius = 1.15, words, visible, d
       <group position={[0, bottom, 0]} scale={radius / 1.6}>
         <points geometry={discGeo} frustumCulled={false} material={discMat} />
         <group ref={wordRing}>
-          <Words words={words} radius={1.6} opacity={opacity} />
+          <Words words={words} radius={1.6} opacity={wordShow.current} />
         </group>
       </group>
     </group>

@@ -132,6 +132,7 @@ export function IntroWorld({
             drop={drop}
             radius={ringR}
             drip={formed}
+            reveal={awake}
             words={birthdayConfig.heart.words}
             visible={stage === 'intro'}
             density={Math.max(0.35, heartPoints / 9000)}
@@ -161,9 +162,9 @@ export function IntroWorld({
         <LightDog
           awake={awake}
           visible={stage === 'intro'}
-          position={portrait ? [-0.62, 1.9, -0.5] : [2.45, -0.4, -0.3]}
+          position={portrait ? [-0.6, 2.05, -0.5] : [2.6, -0.5, -0.2]}
           facing={portrait ? 0.25 : -0.35}
-          scale={portrait ? 0.72 : 1.3}
+          scale={portrait ? 0.68 : 1.55}
           density={Math.max(0.4, heartPoints / 9000)}
           reducedMotion={reducedMotion}
         />

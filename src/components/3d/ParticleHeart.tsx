@@ -74,7 +74,7 @@ const vertex = /* glsl */ `
       // the current: up from the tip (θ = π) toward the cleft (θ = 0), spiralling gently
       float run = mod(aFlow.z + t * aFlow.w * uMotion, PI);
       float th = PI - run;
-      float ph = aFlow.y + t * 0.07 * uMotion;
+      float ph = aFlow.y + t * 0.2 * uMotion;
       target = onSurface(th, ph, 0.93 + 0.07 * aSeed);
       // the meridians crowd together at the tip and the cleft: let the light fade in and out there
       fade = smoothstep(0.05, 0.5, th) * smoothstep(PI, PI - 0.55, th);
@@ -87,7 +87,7 @@ const vertex = /* glsl */ `
     // dormant: the flat ring beneath, or a slow wander around the scene
     float wander = aStart.w;
     // same angular speeds as the spiral disc beneath, so the two read as one ring
-    float spin = wander > 0.5 ? 0.05 : 0.12 + 0.28 / (0.45 + aStart.x * 1.45);
+    float spin = wander > 0.5 ? 0.12 : 0.28 + 0.6 / (0.45 + aStart.x * 1.45);
     float rr = wander > 0.5 ? aStart.x : aStart.x * uRingR;
     float a = aStart.y + t * spin * uMotion;
     vec3 start = vec3(sin(a) * rr, 0.0, cos(a) * rr);
@@ -165,7 +165,7 @@ export const ParticleHeart = forwardRef<ParticleHeartHandle, { count: number; re
         color.set([c.r, c.g, c.b], i * 3);
         // 62% flow on the surface, the rest fill the volume (their `position`)
         const onSurface = Math.random() < 0.62;
-        flow.set([onSurface ? 1 : 0, Math.random() * Math.PI * 2, Math.random() * Math.PI, 0.1 + Math.random() * 0.14], i * 4);
+        flow.set([onSurface ? 1 : 0, Math.random() * Math.PI * 2, Math.random() * Math.PI, 0.22 + Math.random() * 0.24], i * 4);
         // dormant: most in the ring (dense toward its rim), some wandering around the scene
         const wanderer = Math.random() < 0.22;
         if (wanderer) {
