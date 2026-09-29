@@ -32,10 +32,16 @@ const problems = [];
 try {
   await page.goto(`${url}?reset&debug`, { waitUntil: 'networkidle' });
   await page.waitForTimeout(4000);
-  for (let i = 0; i < 3; i++) {
-    await page.mouse.click(720, 450);
-    // the first touch gathers the light into a heart before it can beat
-    await page.waitForTimeout(i === 0 ? 3900 : 900);
+  // The first touch gathers the light into a heart, which ignores touches until it is
+  // whole (~3.2 s; longer on a slow software renderer), so tap until each touch counts.
+  const counted = (n) => page.locator('.heart-hit').getAttribute('aria-label').then((l) => l?.includes(`${n} of`) ?? true, () => true);
+  for (let i = 1; i <= 3; i++) {
+    for (let tries = 0; ; tries++) {
+      await page.mouse.click(720, 450);
+      await page.waitForTimeout(900);
+      if (await counted(i)) break;
+      if (tries >= 20) throw new Error(`heart did not take touch ${i}`);
+    }
   }
   await page.locator('#bday').waitFor({ timeout: 10000 });
   await page.waitForTimeout(1200);

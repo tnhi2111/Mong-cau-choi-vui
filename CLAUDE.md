@@ -68,11 +68,12 @@ Done in `dogModel.ts` (committed with this file):
 - waving paw: bigger flatter palm, 4 toes (`PAW_TOES`), three-lobed palm pad
   (`inPalm`), toe pads (`inToePad`), gaps between toes (`PAW_GAPS`), dense brown pads.
 
-**Not finished:** the full QA run after this change was interrupted. Passed: unit test,
-visual (desktop + mobile), full flow desktop / 390×844 / 375×812 / reduced motion.
-**Not yet re-run:** `--nogl`, `qa:keyboard`, `qa:qr`, `qa:perf` (they passed on the
-previous commit and nothing they cover changed, but re-run them). The owner has not
-seen the new ears/paw yet — ask for feedback.
+QA after this change: all passed (unit, visual, full flow desktop / mobile / reduced
+motion / `--nogl`, `qa:keyboard`, `qa:qr`). `qa:perf` now taps until each touch counts
+instead of fixed waits (a slow renderer gathers the heart more slowly). Without a GPU
+(cloud, SwiftShader) its "main thread blocked" number is noise (240–3000 ms on both
+this and the previous commit) — only trust it with `--gpu`; the shader check passes.
+The owner has been sent close-ups of the new ears/paw — waiting for their feedback.
 
 Ideas the owner may ask for next (not requested yet): ears even closer to the photo
 (slimmer, wavier fur fringe at the bottom), the puppy turned so the tail shows from
