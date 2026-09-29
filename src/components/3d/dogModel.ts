@@ -734,6 +734,7 @@ export function buildDog(total: number): DogPoint[] {
 /** Simple shapes just inside the body, for the invisible depth-only "flesh". */
 export interface Occluder {
   group: Group;
+  part: Part;
   position: V3;
   scale: V3;
   /** [ry, rz]: turn about Y, then tilt about Z (Euler order 'YZX') */
@@ -750,19 +751,21 @@ export function occluders(): Occluder[] {
         const f = earFrame(v, s.side, earTmp);
         out.push({
           group: s.group,
+          part: s.part,
           position: [f.c.x, f.c.y, f.c.z],
           scale: [earW(v) * 0.85, EAR_LEN / 7 * 0.8, earT(v) * 0.6],
           rot: [s.side * earTurn(v), 0],
         });
       }
     } else if (s.kind === 'e') {
-      out.push({ group: s.group, position: s.c, scale: [s.r[0] * 0.92, s.r[1] * 0.92, s.r[2] * 0.92], rot: [s.ry ?? 0, s.rz ?? 0] });
+      out.push({ group: s.group, part: s.part, position: s.c, scale: [s.r[0] * 0.92, s.r[1] * 0.92, s.r[2] * 0.92], rot: [s.ry ?? 0, s.rz ?? 0] });
     } else {
       for (let i = 0; i <= 5; i++) {
         const t = i / 5;
         const r = (s.r1 + (s.r2 - s.r1) * t) * 0.9;
         out.push({
           group: s.group,
+          part: s.part,
           position: [s.a[0] + (s.b[0] - s.a[0]) * t, s.a[1] + (s.b[1] - s.a[1]) * t, s.a[2] + (s.b[2] - s.a[2]) * t],
           scale: [r, r, r / (s.flatZ ?? 1)],
         });

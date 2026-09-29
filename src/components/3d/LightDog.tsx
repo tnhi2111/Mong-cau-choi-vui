@@ -2,8 +2,8 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { useFrame, type ThreeEvent } from '@react-three/fiber';
 import * as THREE from 'three';
 import { useShader } from './useShader';
-import { buildDog, EAR_ROOT_Y, occluders, SHOULDER, TAIL_BASE } from './dogModel';
-import { bindRun, BONE_COUNT, GALLOP, poseRun, RUN_SPEED } from './dogRun';
+import { buildDog, EAR_ROOT_Y, occluders, SHOULDER, TAIL_BASE, type V3 } from './dogModel';
+import { bindRun, BONE_COUNT, GALLOP, HEAD, HEAD_OFFSET, poseRun, RUN_SPEED, runOccluders } from './dogRun';
 import type { OrbitInput } from '../../hooks/usePointerOrbit';
 import { sound } from '../../lib/audio';
 
@@ -340,6 +340,18 @@ export function LightDog({ awake, visible, position, facing = 0, scale, density,
   const occluder = useMemo(() => new THREE.MeshBasicMaterial({ colorWrite: false }), []);
   const sphere = useMemo(() => new THREE.SphereGeometry(1, 24, 16), []);
   const flesh = useMemo(occluders, []);
+  // the standing body's flesh rides its bones (the head is the sitting head's, moved)
+  const runFlesh = useMemo(
+    () => [
+      ...runOccluders(),
+      ...flesh
+        .filter((o) => o.part === 'head')
+        .map((o) => ({ ...o, bone: HEAD, position: [o.position[0] + HEAD_OFFSET[0], o.position[1] + HEAD_OFFSET[1], o.position[2] + HEAD_OFFSET[2]] as V3 })),
+    ],
+    [flesh],
+  );
+  const runBody = useRef<THREE.Group>(null);
+  const boneGroups = useRef<(THREE.Group | null)[]>([]);
   useEffect(
     () => () => {
       occluder.dispose();
@@ -449,6 +461,15 @@ export function LightDog({ awake, visible, position, facing = 0, scale, density,
     // the body only exists once the light has gathered into it
     // (and only while it sits: running, it is light alone)
     if (body.current) body.current.visible = awakeP.current > 0.85 && shown.current > 0.5 && runW < 0.01;
+    // on its feet, the flesh follows the skeleton and the path
+    const standing = runW > 0.97 && shown.current > 0.5;
+    if (runBody.current) runBody.current.visible = standing;
+    if (standing)
+      boneGroups.current.forEach((g, b) => {
+        if (!g) return;
+        g.matrix.multiplyMatrices(uniforms.uPath.value, uniforms.uBones.value[b]);
+        g.matrixWorldNeedsUpdate = true;
+      });
     // the waving arm's hidden body follows the same wave as its light (see the shader)
     if (arm.current) {
       const t = state.clock.elapsedTime;
@@ -459,7 +480,7 @@ export function LightDog({ awake, visible, position, facing = 0, scale, density,
     }
   });
 
-  const mesh = (o: (typeof flesh)[number], i: number, origin: [number, number, number] = [0, 0, 0]) => (
+  const mesh = (o: { position: V3; scale: V3; rot?: [number, number] }, i: number, origin: V3 = [0, 0, 0]) => (
     <mesh
       key={i}
       geometry={sphere}
@@ -479,6 +500,19 @@ export function LightDog({ awake, visible, position, facing = 0, scale, density,
           <group ref={arm} position={SHOULDER}>
             {flesh.filter((o) => o.group === 2).map((o, i) => mesh(o, i, SHOULDER))}
           </group>
+        </group>
+        <group ref={runBody} visible={false}>
+          {Array.from({ length: BONE_COUNT }, (_, b) => (
+            <group
+              key={b}
+              ref={(g) => {
+                boneGroups.current[b] = g;
+              }}
+              matrixAutoUpdate={false}
+            >
+              {runFlesh.filter((o) => o.bone === b).map((o, i) => mesh(o, i))}
+            </group>
+          ))}
         </group>
         <points geometry={points} material={material} frustumCulled={false} renderOrder={-1} />
         {/* an invisible shape round the whole puppy, so a touch anywhere on it counts */}

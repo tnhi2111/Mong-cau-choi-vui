@@ -30,16 +30,16 @@ import { sdEllipsoid, sdRoundCone, TAIL_BASE, type Cone, type DogPoint, type Ell
 export const BONE_COUNT = 16;
 const CHEST = 0;
 const HIPS = 1;
-const HEAD = 2;
+export const HEAD = 2;
 const TAIL = 3;
 type LegName = 'fl' | 'fr' | 'hl' | 'hr';
 const LEG_BONE: Record<LegName, number> = { fl: 4, fr: 7, hl: 10, hr: 13 };
 
 const GROUND = -0.38;
 const SPINE_PIVOT: V3 = [0, 0.12, -0.02];
-const NECK_PIVOT: V3 = [0, 0.32, 0.31];
+const NECK_PIVOT: V3 = [0, 0.36, 0.33];
 /** Rigid parts: where they sit on the standing puppy, relative to the sitting one. */
-const HEAD_OFFSET: V3 = [0, -0.1, 0.47];
+export const HEAD_OFFSET: V3 = [0, -0.03, 0.5];
 const BIB_OFFSET: V3 = [0, -0.08, 0.08];
 const RUN_TAIL_BASE: V3 = [0, 0.24, -0.32];
 const TAIL_OFFSET: V3 = [RUN_TAIL_BASE[0] - TAIL_BASE[0], RUN_TAIL_BASE[1] - TAIL_BASE[1], RUN_TAIL_BASE[2] - TAIL_BASE[2]];
@@ -51,7 +51,7 @@ interface LegRest {
 }
 function legRest(leg: LegName): LegRest {
   const front = leg[0] === 'f';
-  const x = (leg[1] === 'l' ? -1 : 1) * (front ? 0.12 : 0.13);
+  const x = (leg[1] === 'l' ? -1 : 1) * (front ? 0.13 : 0.15);
   return front
     ? { front, j: [[x, 0.17, 0.2], [x, -0.07, 0.16], [x, -0.31, 0.21], [x, GROUND, 0.25]] }
     : { front, j: [[x, 0.17, -0.23], [x, -0.06, -0.11], [x, -0.25, -0.29], [x, GROUND, -0.23]] };
@@ -67,25 +67,28 @@ type RunShape = (({ kind: 'e' } & Ellipsoid) | ({ kind: 'c' } & Cone)) & {
   bone: number;
   /** for leg segments: where along the leg this segment starts (0, 1, 2) */
   seg?: number;
+  /** relative point density */
+  w?: number;
 };
 
 const SHAPES: RunShape[] = [
-  { kind: 'e', c: [0, 0.14, -0.02], r: [0.18, 0.18, 0.29], part: 'torso', bone: -1 },
-  { kind: 'e', c: [0, 0.09, 0.19], r: [0.15, 0.16, 0.12], part: 'torso', bone: -1 },
-  { kind: 'e', c: [0, 0.15, -0.23], r: [0.16, 0.15, 0.13], part: 'torso', bone: -1 },
-  { kind: 'c', a: [0, 0.2, 0.2], b: [0, 0.36, 0.37], r1: 0.14, r2: 0.12, part: 'torso', bone: CHEST },
+  // a round, well-fed puppy: as broad in the body as when it sits
+  { kind: 'e', c: [0, 0.13, -0.02], r: [0.235, 0.215, 0.3], part: 'torso', bone: -1 },
+  { kind: 'e', c: [0, 0.08, 0.19], r: [0.19, 0.2, 0.14], part: 'torso', bone: -1 },
+  { kind: 'e', c: [0, 0.14, -0.22], r: [0.205, 0.185, 0.155], part: 'torso', bone: -1 },
+  { kind: 'c', a: [0, 0.2, 0.19], b: [0, 0.42, 0.38], r1: 0.18, r2: 0.15, part: 'torso', bone: CHEST, w: 2 },
   ...LEGS.flatMap((leg): RunShape[] => {
     const { front, j } = REST[leg];
     const b = LEG_BONE[leg];
-    const [r0, r1, r2, r3] = front ? [0.078, 0.06, 0.048, 0.048] : [0.105, 0.065, 0.048, 0.046];
+    const [r0, r1, r2, r3] = front ? [0.1, 0.078, 0.062, 0.06] : [0.145, 0.088, 0.062, 0.058];
     const p = j[3];
     return [
       { kind: 'c', a: j[0], b: j[1], r1: r0, r2: r1, part: leg, bone: b, seg: 0 },
       { kind: 'c', a: j[1], b: j[2], r1: r1 * 0.95, r2: r2, part: leg, bone: b + 1, seg: 1 },
       { kind: 'c', a: j[2], b: p, r1: r2 * 0.95, r2: r3, part: leg, bone: b + 2, seg: 2, paw: front },
-      { kind: 'e', c: [p[0], p[1], p[2] + 0.01], r: [0.068, 0.044, 0.085], part: leg, bone: b + 2, paw: true },
-      ...[-0.6, -0.2, 0.2, 0.6].map(
-        (k): RunShape => ({ kind: 'e', c: [p[0] + k * 0.068, p[1] - 0.004, p[2] + 0.075], r: [0.02, 0.034, 0.03], part: leg, bone: b + 2, paw: true }),
+      { kind: 'e', c: [p[0], p[1], p[2] + 0.015], r: [0.088, 0.052, 0.1], part: leg, bone: b + 2, paw: true },
+      ...[-0.62, -0.21, 0.21, 0.62].map(
+        (k): RunShape => ({ kind: 'e', c: [p[0] + k * 0.088, p[1] - 0.004, p[2] + 0.09], r: [0.025, 0.042, 0.038], part: leg, bone: b + 2, paw: true }),
       ),
     ];
   }),
@@ -117,6 +120,32 @@ function onShape(s: RunShape, out: THREE.Vector3): number {
   return t;
 }
 
+/** The standing body's surface normal at p (from the whole union of shapes). */
+const sdAll = (x: number, y: number, z: number) => SHAPES.reduce((m, o) => Math.min(m, sd(x, y, z, o)), Infinity);
+function normalAt(p: THREE.Vector3, out: THREE.Vector3) {
+  const e = 0.003;
+  return out
+    .set(
+      sdAll(p.x + e, p.y, p.z) - sdAll(p.x - e, p.y, p.z),
+      sdAll(p.x, p.y + e, p.z) - sdAll(p.x, p.y - e, p.z),
+      sdAll(p.x, p.y, p.z + e) - sdAll(p.x, p.y, p.z - e),
+    )
+    .normalize();
+}
+
+/**
+ * A golden retriever's coat: a soft layer of fur all over, and long feathering where
+ * the breed has it — the belly and chest, the backs of the legs, the britches.
+ */
+function fluff(p: THREE.Vector3, s: RunShape) {
+  const n = normalAt(p, new THREE.Vector3());
+  let long = 0;
+  // (and the ruff: a thick mane of fur down the front of the neck and chest)
+  if (s.part === 'torso') long = Math.max(0, -n.y - 0.3) * 0.075 + Math.max(0, n.z - 0.3) * 0.06;
+  else if (!s.paw && s.seg !== undefined && s.seg < 2) long = Math.max(0, -n.z - 0.2) * (s.seg === 0 ? 0.06 : 0.04);
+  p.addScaledVector(n, 0.004 + Math.random() * 0.012 + Math.pow(Math.random(), 1.4) * long);
+}
+
 interface RunPoint {
   p: THREE.Vector3;
   bone: number;
@@ -128,7 +157,7 @@ interface RunPoint {
 function sample(shapes: RunShape[], n: number): RunPoint[] {
   const out: RunPoint[] = [];
   if (!n || !shapes.length) return out;
-  const areas = shapes.map(area);
+  const areas = shapes.map((s) => area(s) * (s.w ?? 1));
   const sum = areas.reduce((a, b) => a + b, 0);
   const p = new THREE.Vector3();
   let guard = 0;
@@ -139,6 +168,7 @@ function sample(shapes: RunShape[], n: number): RunPoint[] {
     const s = shapes[i];
     const t = onShape(s, p);
     if (SHAPES.some((o) => o !== s && sd(p.x, p.y, p.z, o) < -0.006)) continue;
+    fluff(p, s);
     out.push({ p: p.clone(), bone: s.bone, along: s.seg !== undefined ? s.seg + t : 3 });
   }
   // (only if the shapes were nearly all buried) top up with anything
@@ -245,7 +275,7 @@ export function bindRun(dog: DogPoint[], total: number): RunBinding {
 
 // ── the gallop ─────────────────────────────────────────────────────────────
 /** Strides per second, the share of a stride each foot is on the ground, half a stride's reach. */
-export const GALLOP = { freq: 2.7, duty: 0.38, reach: 0.15 };
+export const GALLOP = { freq: 2.4, duty: 0.32, reach: 0.19 };
 /** Body speed at full gallop (model units / s): exactly what keeps planted feet from skating. */
 export const RUN_SPEED = (2 * GALLOP.reach * GALLOP.freq) / GALLOP.duty;
 /** When each foot lands in the stride: hind pair, then front pair, then a flight. */
@@ -304,11 +334,12 @@ const ease = (x: number) => x * x * (3 - 2 * x);
  */
 export function poseRun(out: THREE.Matrix4[], phase: number, k: number) {
   const f = ((phase % 1) + 1) % 1;
-  // the body: highest in the flight, nose up while the hind legs drive, down as the fronts land
-  const bounce = k * 0.03 * Math.cos(TAU * (f - 0.97));
-  const pitchUp = k * 0.1 * Math.sin(TAU * (f - 0.05));
+  // the body: sinking over each pair of planted feet, springing high in the flight
+  const bounce = k * 0.065 * (0.6 * Math.cos(TAU * (f - 0.93)) + 0.4 * Math.cos(2 * TAU * (f - 0.93)));
+  // nose up while the hind legs drive, down as the fronts land
+  const pitchUp = k * 0.15 * Math.sin(TAU * (f - 0.05));
   // the spine gathers (arches) as the hind feet reach under, stretches as the fronts reach out
-  const flex = k * 0.13 * Math.cos(TAU * f);
+  const flex = k * 0.2 * Math.cos(TAU * f);
   const lift = new THREE.Vector3(0, bounce, 0);
   hinge(out[CHEST], SPINE_PIVOT, tv[0].set(...SPINE_PIVOT).add(lift), -pitchUp + flex);
   hinge(out[HIPS], SPINE_PIVOT, tv[0].set(...SPINE_PIVOT).add(lift), -pitchUp - flex);
@@ -334,13 +365,13 @@ export function poseRun(out: THREE.Matrix4[], phase: number, k: number) {
       // planted: sliding back under the body as it passes over
       paw.z += stride * (1 - (2 * lf) / D);
       // the hind hock straightens as the leg drives back
-      fold = front ? 0 : -0.5 * k * (lf / D);
+      fold = front ? 0 : -0.6 * k * (lf / D);
     } else {
       const u = (lf - D) / (1 - D);
       paw.z += -stride + 2 * stride * ease(u);
-      paw.y += (front ? 0.12 : 0.09) * k * Math.pow(Math.sin(Math.PI * u), 0.8);
+      paw.y += (front ? 0.16 : 0.13) * k * Math.pow(Math.sin(Math.PI * u), 0.8);
       // front: the wrist curls the paw under; hind: the hock folds, the paw trails
-      fold = front ? 1.5 * k * Math.sin(Math.PI * u) : -0.5 * k * (1 - u) + 1.15 * k * Math.sin(Math.PI * u);
+      fold = front ? 1.7 * k * Math.sin(Math.PI * u) : -0.6 * k * (1 - u) + 1.3 * k * Math.sin(Math.PI * u);
     }
     // the joint above the paw, from the paw and that last segment's fold
     const lastAng = a2 + fold;
@@ -353,4 +384,36 @@ export function poseRun(out: THREE.Matrix4[], phase: number, k: number) {
     hinge(out[b + 1], j[1], mid, ang(end.y - mid.y, end.z - mid.z) - a1);
     hinge(out[b + 2], j[2], end, ang(paw.y - end.y, paw.z - end.z) - a2);
   }
+}
+
+/** Simple shapes just inside the standing body, per bone, for the invisible depth-only "flesh". */
+export interface RunOccluder {
+  bone: number;
+  position: V3;
+  scale: V3;
+}
+export function runOccluders(): RunOccluder[] {
+  const out: RunOccluder[] = [];
+  for (const s of SHAPES) {
+    if (s.kind === 'e') {
+      if (s.r[0] < 0.05) continue; // toes
+      if (s.bone < 0 && s.r[2] > 0.25) {
+        // the long trunk: its front half rides the chest, its back half the hips
+        for (const [bone, side] of [[CHEST, 1], [HIPS, -1]] as const)
+          out.push({ bone, position: [s.c[0], s.c[1], s.c[2] + side * s.r[2] * 0.45], scale: [s.r[0] * 0.88, s.r[1] * 0.88, s.r[2] * 0.55] });
+        continue;
+      }
+      const bone = s.bone >= 0 ? s.bone : s.c[2] > -0.05 ? CHEST : HIPS;
+      out.push({ bone, position: s.c, scale: [s.r[0] * 0.9, s.r[1] * 0.9, s.r[2] * 0.9] });
+    } else {
+      // (the neck stays hollow at the front, so the bib and chin in front of it still show)
+      const inset = s.part === 'torso' ? 0.6 : 0.85;
+      for (let i = 0; i <= 4; i++) {
+        const t = i / 4;
+        const r = (s.r1 + (s.r2 - s.r1) * t) * inset;
+        out.push({ bone: s.bone, position: [s.a[0] + (s.b[0] - s.a[0]) * t, s.a[1] + (s.b[1] - s.a[1]) * t, s.a[2] + (s.b[2] - s.a[2]) * t], scale: [r, r, r] });
+      }
+    }
+  }
+  return out;
 }

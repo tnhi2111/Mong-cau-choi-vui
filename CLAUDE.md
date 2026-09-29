@@ -88,6 +88,15 @@ down (no more waving), tail wags. Tapping again repeats it.
   on the lap + lean into the curve), `uRun` blends sit ↔ run; lap timing at the top
   (`STAND`, `ACCEL`, `DECEL`, `SIT`, `LAP_DEPTH`, `MIN_LAP_WIDTH`). Occluder body is off
   while running. Reduced motion: no run, just bark + tongue.
+- Follow-up ("running it looked bald and skinny; make the leaps longer, bouncier"): the
+  standing body is now as round as the sitting one (wider trunk, thick fluffy legs, paws
+  as big as the sitting paws), every running point is pushed out by `fluff()` (a soft
+  coat + retriever feathering on belly, chest/neck ruff and backs of the legs), and an
+  invisible body rides the bones while it runs (`runOccluders()` + the sitting head's
+  occluders, per-bone groups in `LightDog`) so the far side is hidden like when it sits.
+  Head raised on a neck. Gait: `GALLOP = { freq 2.4, duty 0.32, reach 0.19 }`, higher
+  flight bounce, more spine flex / pitch, higher paw lift — longer, bouncier bounds.
+  Judge looks at deviceScaleFactor 2 (at 1 every figure of light looks thin).
 - QA hooks (any build): `window.__dogT = seconds` holds the trick at a moment;
   `window.__dogPose = { phase, speed, yaw }` shows the running pose on the spot (side-view
   filmstrips of the gait were made this way; helper scripts in `qa-output/`).
