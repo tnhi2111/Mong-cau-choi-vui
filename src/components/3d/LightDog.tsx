@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { useFrame, type ThreeEvent } from '@react-three/fiber';
 import * as THREE from 'three';
 import { useShader } from './useShader';
-import { buildDog, EAR_ROOT_Y, occluders, SHOULDER, TAIL_BASE, type V3 } from './dogModel';
+import { buildDog, EAR_ROOT_Y, occluders, SHOULDER, TAIL_BASE, TONGUE_ROOT, type V3 } from './dogModel';
 import { growFur } from './dogFur';
 import { bindRun, BONE_COUNT, GALLOP, HEAD, HEAD_OFFSET, poseRun, RUN_SPEED, runOccluders } from './dogRun';
 import type { OrbitInput } from '../../hooks/usePointerOrbit';
@@ -133,7 +133,11 @@ const vertex = /* glsl */ `
   uniform float uRun;       // 0 sitting … 1 on its feet (dogRun.ts)
   uniform mat4 uBones[${BONE_COUNT}];
   uniform mat4 uPath;       // where it has run to, and which way it faces
-  uniform float uEarFlap;   // ears thrown back by the gallop
+  uniform float uEarFlap;   // ears thrown back by the gallop …
+  uniform float uEarLift;   // … and lifted out to the sides
+  uniform float uTongueBack; // tongue blown back by the wind of running
+  uniform float uTongueSide; // … and flopping side to side
+  uniform float uTailSway;  // the tail swaying behind it as it runs
   attribute vec3 aRun;      // this point on the standing puppy …
   attribute float aBoneA;   // … carried by this bone
   attribute float aBoneB;   // (or blended toward this one)
@@ -166,20 +170,24 @@ const vertex = /* glsl */ `
     // ── movements shared by both poses (worked out on the sitting puppy, then carried
     //    over as an offset — the head, ears and tail are the same points in both) ──
     vec3 d = vec3(0.0);
-    // the tongue: out and down over the chin, panting
+    // the tongue (a solid one, rooted deep in the mouth): drawn in, or out and panting;
+    // running, the wind blows it back under the chin and it flops from side to side
     if (aAnim > 0.15 && aAnim < 0.25) {
-      float below = 0.452 - local.y;
-      vec3 q = local;
-      q.y = 0.452 - below * (1.0 + 1.25 * uTongue) - 0.02 * uTongue;
-      q.z += uTongue * (0.02 + below * 0.6);
-      q.x *= 1.0 + 0.2 * uTongue;
-      q.y -= (0.5 + 0.5 * sin(t * 9.0)) * 0.008 * uTongue * (below / 0.09) * uMotion;
+      vec3 root = vec3(${TONGUE_ROOT.map((v) => v.toFixed(4)).join(', ')});
+      float along = clamp(distance(local, root) / 0.19, 0.0, 1.0);
+      vec3 q = mix(root + (local - root) * 0.3 + vec3(0.0, 0.004, -0.012), local, uTongue);
+      float pant = (0.5 + 0.5 * sin(t * 9.0)) * 0.13 * uMotion * uTongue;
+      q = rotX(q, root, (pant + uTongueBack) * along);
+      q = rotZ(q, root, uTongueSide * along);
       d += q - local;
     }
-    // the ears: thrown back and flapping as it gallops
+    // the ears: thrown back and lifted out by the wind as it gallops, flapping with each bound
     if (aAnim > 0.25 && aAnim < 0.35) {
       float hang = clamp((${EAR_ROOT_Y.toFixed(3)} - local.y) / 0.6, 0.0, 1.0);
-      d += rotX(local, vec3(0.0, ${EAR_ROOT_Y.toFixed(3)}, -0.03), uEarFlap * hang) - local;
+      float side = local.x < 0.0 ? -1.0 : 1.0;
+      vec3 q = rotX(local, vec3(0.0, ${EAR_ROOT_Y.toFixed(3)}, -0.03), uEarFlap * hang);
+      q = rotZ(q, vec3(side * 0.2, ${EAR_ROOT_Y.toFixed(3)}, 0.0), side * uEarLift * hang);
+      d += q - local;
     }
     // a happy wag: the whole tail sweeps side to side from its root; further along it lags
     // behind and swings wider, so it bends like a whip; bursts of wagging, then easier
@@ -187,7 +195,7 @@ const vertex = /* glsl */ `
       float along = (aAnim - 1.0) / 0.49;
       float mood = 0.65 + 0.35 * sin(t * 0.45);
       float ph = t * 9.5 - along * 1.7;
-      vec3 q = rotY(local, vec3(${TAIL_BASE.join(', ')}), sin(ph) * (0.3 + 0.45 * along) * mood * uMotion);
+      vec3 q = rotY(local, vec3(${TAIL_BASE.join(', ')}), sin(ph) * (0.3 + 0.45 * along) * mood * uMotion + uTailSway * along);
       q.y += sin(ph + 1.3) * 0.02 * along * uMotion;
       d += q - local;
     }
@@ -237,9 +245,8 @@ const vertex = /* glsl */ `
     if (aAnim > 2.15 && aAnim < 2.25) vAlpha *= 1.0 - 0.97 * max(uArmDown, uRun);
     // the tongue out: fuller and a brighter pink, so it shows over the white bib
     if (aAnim > 0.15 && aAnim < 0.25) {
-      gl_PointSize *= 1.0 + 0.8 * uTongue;
-      vColor = mix(vColor, vec3(1.0, 0.36, 0.55), 0.35 * uTongue);
-      vAlpha = min(1.0, vAlpha * (1.0 + 0.6 * uTongue));
+      gl_PointSize *= 1.0 + 0.25 * uTongue;
+      vAlpha = min(1.0, vAlpha * (1.0 + 0.3 * uTongue));
     }
   }
 `;
@@ -346,6 +353,10 @@ export function LightDog({ awake, visible, position, facing = 0, scale, density,
       uBones: { value: Array.from({ length: BONE_COUNT }, () => new THREE.Matrix4()) },
       uPath: { value: new THREE.Matrix4() },
       uEarFlap: { value: 0 },
+      uEarLift: { value: 0 },
+      uTongueBack: { value: 0 },
+      uTongueSide: { value: 0 },
+      uTailSway: { value: 0 },
     }),
     [],
   );
@@ -380,6 +391,7 @@ export function LightDog({ awake, visible, position, facing = 0, scale, density,
   const trick = useRef<THREE.Group>(null);
   /** When the trick began (clock seconds), whether it has barked yet, and whether it ever played. */
   const trickAt = useRef<number | null>(null);
+  const wind = useRef(0);
   const lap = useRef<Lap | null>(null);
   const barked = useRef(false);
   const played = useRef(false);
@@ -424,6 +436,8 @@ export function LightDog({ awake, visible, position, facing = 0, scale, density,
     uniforms.uTongue.value += ((played.current && T > 0.3 ? 1 : 0) - uniforms.uTongue.value) * k;
     let runW = 0;
     let speed = 0;
+    /** where it is in its stride (for the loose parts' flapping) */
+    let gust = 0;
     if (L && T < L.runEnd) {
       const lapT = T - STAND;
       const lapEnd = ACCEL + L.cruise + DECEL;
@@ -451,7 +465,7 @@ export function LightDog({ awake, visible, position, facing = 0, scale, density,
       path.premultiply(m.makeTranslation(px, 0, pz));
       const phase = Math.max(0, lapT) * GALLOP.freq;
       poseRun(uniforms.uBones.value, phase, speed);
-      uniforms.uEarFlap.value = speed * (0.45 + 0.25 * Math.sin(TAU * (phase + 0.3)));
+      gust = phase;
     }
     // (QA: window.__dogPose = { phase, speed, yaw } shows the running pose on the spot,
     // turned to `yaw` in the world — for filmstrips of the gait)
@@ -460,9 +474,20 @@ export function LightDog({ awake, visible, position, facing = 0, scale, density,
       runW = 1;
       uniforms.uPath.value.makeRotationY(pose.yaw - facing);
       poseRun(uniforms.uBones.value, pose.phase, pose.speed);
-      uniforms.uEarFlap.value = pose.speed * (0.45 + 0.25 * Math.sin(TAU * (pose.phase + 0.3)));
+      gust = pose.phase;
+      speed = pose.speed;
+      wind.current = speed;
     }
     uniforms.uRun.value = runW;
+    // the wind of running on the loose parts, a beat behind the body (they have weight)
+    wind.current += (speed - wind.current) * (1 - Math.exp(-dt * 3));
+    const w = wind.current * (reducedMotion ? 0 : 1);
+    const t = state.clock.elapsedTime;
+    uniforms.uEarFlap.value = w * (0.55 + 0.28 * Math.sin(TAU * (gust - 0.15)) + 0.06 * Math.sin(t * 17));
+    uniforms.uEarLift.value = w * (0.22 + 0.14 * Math.sin(TAU * (gust - 0.1)) + 0.04 * Math.sin(t * 13 + 1));
+    uniforms.uTongueBack.value = w * (0.75 + 0.2 * Math.sin(TAU * (gust - 0.2)));
+    uniforms.uTongueSide.value = w * 0.4 * Math.sin(Math.PI * gust + 0.6);
+    uniforms.uTailSway.value = w * 0.35 * Math.sin(TAU * (gust - 0.25));
     const barkT = L ? (T - L.barkAt) / 0.38 : -1;
     uniforms.uBark.value = barkT > 0 && barkT < 1 ? Math.sin(barkT * Math.PI) : 0;
     if (L && T >= L.barkAt && !barked.current) {

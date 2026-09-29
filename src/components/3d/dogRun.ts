@@ -275,7 +275,7 @@ export function bindRun(dog: DogPoint[], total: number): RunBinding {
 
 // ── the gallop ─────────────────────────────────────────────────────────────
 /** Strides per second, the share of a stride each foot is on the ground, half a stride's reach. */
-export const GALLOP = { freq: 2.1, duty: 0.3, reach: 0.2 };
+export const GALLOP = { freq: 1.75, duty: 0.28, reach: 0.2 };
 /** Body speed at full gallop (model units / s): exactly what keeps planted feet from skating. */
 export const RUN_SPEED = (2 * GALLOP.reach * GALLOP.freq) / GALLOP.duty;
 /**
@@ -286,10 +286,10 @@ const FOOTFALL: Record<LegName, number> = { hl: 0, hr: 0.05, fl: 0.38, fr: 0.43 
 /** When the last front foot leaves the ground and the leap begins. */
 const LEAP_START = 0.43 + GALLOP.duty;
 /** How high it springs at the top of the leap (model units). */
-const LEAP_HEIGHT = 0.17;
+const LEAP_HEIGHT = 0.155;
 /** The leap's rise and fall span a little more than the flight itself (phase units). */
 const LEAP_RISE = LEAP_START - 0.08;
-const LEAP_SPAN = 1 - LEAP_RISE + 0.06;
+const LEAP_SPAN = 1 - LEAP_RISE + 0.04;
 
 const TAU = Math.PI * 2;
 const v3 = (p: V3) => new THREE.Vector3(...p);
@@ -351,8 +351,14 @@ export function poseRun(out: THREE.Matrix4[], phase: number, k: number) {
   // (smooth at both ends: it starts rising while the front feet still push, and is still
   //  settling as the hind feet take its weight — no thud on landing, no jerk on take-off)
   const leapU = (((f - LEAP_RISE) % 1) + 1) % 1 / LEAP_SPAN;
+  // (quick up, slow down: the top of the leap comes early and it floats down to land; then
+  //  the legs give a little under its weight, like knees soaking up the landing)
+  const settle = (leapU - 1) * LEAP_SPAN / (1 - LEAP_SPAN);
   const bounce =
-    k * (leapU <= 1 ? LEAP_HEIGHT * Math.pow(Math.sin(Math.PI * leapU), 1.6) : -0.015 * Math.sin((Math.PI * (leapU - 1) * LEAP_SPAN) / (1 - LEAP_SPAN)) ** 2);
+    k *
+    (leapU <= 1
+      ? LEAP_HEIGHT * Math.pow(Math.sin(Math.PI * (1 - Math.pow(1 - leapU, 1.35))), 1.6)
+      : -0.028 * Math.sin(Math.PI * (1 - Math.pow(1 - settle, 1.5))) ** 2);
   // nose up as the hind legs land and drive, down while the front legs take the weight
   const pitchUp = k * 0.15 * Math.sin(TAU * (f + 0.22));
   // the spine curls (legs gathered under) at the top of the leap, stretches as the fronts reach out

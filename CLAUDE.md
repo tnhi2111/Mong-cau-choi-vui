@@ -114,6 +114,17 @@ down (no more waving), tail wags. Tapping again repeats it.
   the front stance (front feet now reach the ground). Measured with a 2nd-difference
   "jolt" over two strides (`qa-output/tmp/jerk.ts`): 110–500 → 10–19. Ring under the
   heart (`HeartVortex`) spins at about half speed; the word ring at 0.08 rad/s (was 0.2).
+- Follow-up (owner's phone screenshot: "still jerks when it lands — lands too fast; the
+  tongue looks stuck on, not part of the mouth; ears, tongue and tail should blow back and
+  sway in the wind like a real running dog"): slower bounding (`GALLOP.freq 1.75`,
+  duty 0.28), the leap rises quickly and floats down (skewed bump, peak ~40 % in), then
+  the legs give a little on landing; jolt metric 12–18 with the landing no longer the
+  worst point. The tongue is now a solid 3D strip (`growTongue()` in dogModel: from
+  `TONGUE_ROOT` deep in the mouth, over the lower lip, hanging past the chin, groove down
+  the middle); the shader draws it in / out about its root, pants, and lets the wind blow
+  it back (`uTongueBack`) and flop side to side (`uTongueSide`). Ears: thrown back
+  (`uEarFlap`) and lifted outward (`uEarLift`), flapping with the stride; tail sways
+  (`uTailSway`). All driven by a lagged "wind" (speed smoothed) and the stride phase.
 - QA hooks (any build): `window.__dogT = seconds` holds the trick at a moment;
   `window.__dogPose = { phase, speed, yaw }` shows the running pose on the spot (side-view
   filmstrips of the gait were made this way; helper scripts in `qa-output/`).

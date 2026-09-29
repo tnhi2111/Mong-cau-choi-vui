@@ -382,8 +382,6 @@ const lipAt = (x: number) => {
 };
 /** The open mouth: below the lip line, above a round lower edge. */
 const inMouth = (x: number, y: number) => Math.abs(x) < 0.105 && y < lipAt(x) - 0.004 && y > 0.4 + 0.045 * (x / 0.105) ** 2;
-const TONGUE_C: [number, number] = [0, 0.405];
-const inTongue = (x: number, y: number) => ((x - TONGUE_C[0]) / 0.05) ** 2 + ((y - TONGUE_C[1]) / 0.045) ** 2 < 1 && y < lipAt(x) - 0.012;
 
 /** Pads on the waving paw (front view), dark brown like the photo. */
 const PALM_C: [number, number] = [0.4, 0.506];
@@ -691,16 +689,9 @@ export function buildDog(total: number): DogPoint[] {
   strokeOnSurface(out, [[0, NOSE_C[1] - 0.045], [0, 0.458]], ink, 1.3, 0.004);
   for (const side of [-1, 1])
     strokeOnSurface(out, Array.from({ length: 12 }, (_, i) => lip(side, i / 11)), ink, 1.3, 0.004);
-  fillOnSurface(out, 220, [-0.105, 0.39, 0.105, 0.47], (x, y) => inMouth(x, y) && !inTongue(x, y), () => new THREE.Color('#8e2436'), () => 0.9 + Math.random() * 0.6);
+  fillOnSurface(out, 260, [-0.105, 0.39, 0.105, 0.47], inMouth, () => new THREE.Color('#8e2436'), () => 0.9 + Math.random() * 0.6);
   const tongueFrom = out.length;
-  fillOnSurface(
-    out,
-    260,
-    [-0.05, 0.36, 0.05, 0.46],
-    inTongue,
-    (x) => new THREE.Color('#ff6f96').offsetHSL(0, 0, Math.abs(x) < 0.006 ? -0.18 : (Math.random() - 0.5) * 0.06),
-    () => 0.9 + Math.random() * 0.7,
-  );
+  growTongue(out);
 
   // the tongue can stick out (see LightDog): mark it
   for (let i = tongueFrom; i < out.length; i++) out[i].anim = ANIM_TONGUE;
@@ -779,4 +770,48 @@ export function occluders(): Occluder[] {
     }
   }
   return out;
+}
+
+// ── the tongue ──────────────────────────────────────────────────────────────
+/*
+ * A real, solid tongue (not a pink patch on the face): a soft, flat, thick strip that
+ * grows from inside the open mouth, lies over the lower lip and hangs down past the
+ * chin, round at the tip, with a groove down the middle. Built out (as it is when it
+ * pants); LightDog draws it back into the mouth, sets it panting and lets the wind of
+ * running blow it back. It turns about TONGUE_ROOT, deep in the mouth.
+ */
+const LIP_Z = onFront(0, 0.44).z;
+export const TONGUE_ROOT: V3 = [0, 0.43, LIP_Z - 0.06];
+const TONGUE_CURVE = new THREE.CatmullRomCurve3([
+  new THREE.Vector3(...TONGUE_ROOT),
+  new THREE.Vector3(0, 0.41, LIP_Z + 0.01),
+  new THREE.Vector3(0, 0.355, LIP_Z + 0.034),
+  new THREE.Vector3(0, 0.275, LIP_Z + 0.022),
+]);
+function growTongue(out: DogPoint[]) {
+  const pink = new THREE.Color('#ff6f96');
+  const tan = new THREE.Vector3();
+  const across = new THREE.Vector3(1, 0, 0);
+  const up = new THREE.Vector3();
+  for (let i = 0; i < 520; i++) {
+    const t = Math.pow(Math.random(), 0.8);
+    const c = TONGUE_CURVE.getPointAt(t);
+    TONGUE_CURVE.getTangentAt(t, tan);
+    up.crossVectors(tan, across).normalize(); // the upper face (out, away from the chin)
+    let w = 0.036 + 0.012 * Math.sin(Math.PI * Math.min(1, t * 1.2));
+    if (t > 0.82) w *= Math.sqrt(Math.max(0, 1 - ((t - 0.82) / 0.18) ** 2));
+    const sAcross = Math.random() * 2 - 1;
+    const top = Math.random() < 0.72;
+    // thicker in the middle, a groove down the top
+    const thick = 0.011 * Math.sqrt(1 - sAcross * sAcross * 0.85);
+    const groove = top ? -0.004 * Math.exp(-((sAcross / 0.18) ** 2)) : 0;
+    const p = c.clone().addScaledVector(across, sAcross * w).addScaledVector(up, (top ? thick : -thick) + groove);
+    const inGroove = top && Math.abs(sAcross) < 0.1;
+    out.push({
+      p,
+      col: pink.clone().offsetHSL(0, 0, inGroove ? -0.16 : (top ? 0.02 : -0.08) + (Math.random() - 0.5) * 0.05 + (Math.abs(sAcross) > 0.85 ? 0.05 : 0)),
+      anim: ANIM_TONGUE,
+      size: 0.85 + Math.random() * 0.6,
+    });
+  }
 }
