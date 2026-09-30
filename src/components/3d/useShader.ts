@@ -14,7 +14,16 @@ export function useShader<U extends Record<string, THREE.IUniform>>(
   vertexShader: string,
   fragmentShader: string,
   uniforms: U,
-  { additive = true, side = THREE.FrontSide }: { additive?: boolean; side?: THREE.Side } = {},
+  {
+    additive = true,
+    side = THREE.FrontSide,
+    opaque = false,
+  }: {
+    additive?: boolean;
+    side?: THREE.Side;
+    /** a solid surface (floor, wall, wax…): no blending, writes depth */
+    opaque?: boolean;
+  } = {},
 ): THREE.ShaderMaterial & { uniforms: U } {
   const material = useMemo(
     () =>
@@ -22,12 +31,12 @@ export function useShader<U extends Record<string, THREE.IUniform>>(
         vertexShader,
         fragmentShader,
         uniforms,
-        transparent: true,
-        depthWrite: false,
+        transparent: !opaque,
+        depthWrite: opaque,
         side,
-        blending: additive ? THREE.AdditiveBlending : THREE.NormalBlending,
+        blending: opaque ? THREE.NoBlending : additive ? THREE.AdditiveBlending : THREE.NormalBlending,
       }),
-    [vertexShader, fragmentShader, uniforms, additive, side],
+    [vertexShader, fragmentShader, uniforms, additive, side, opaque],
   );
   useEffect(() => () => material.dispose(), [material]);
   return material as THREE.ShaderMaterial & { uniforms: U };

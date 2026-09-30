@@ -287,6 +287,35 @@ class SoundSystem {
     }
   }
 
+  /** A soft breath, as when blowing out birthday candles: a short swell of filtered air. */
+  blow(): void {
+    const ctx = this.ready();
+    if (!ctx || !this.out) return;
+    try {
+      const now = ctx.currentTime;
+      const len = Math.ceil(ctx.sampleRate * 0.6);
+      const buf = ctx.createBuffer(1, len, ctx.sampleRate);
+      const data = buf.getChannelData(0);
+      for (let i = 0; i < len; i++) data[i] = Math.random() * 2 - 1;
+      const noise = ctx.createBufferSource();
+      noise.buffer = buf;
+      const band = ctx.createBiquadFilter();
+      band.type = 'lowpass';
+      band.frequency.setValueAtTime(700, now);
+      band.frequency.exponentialRampToValueAtTime(1800, now + 0.12);
+      band.frequency.exponentialRampToValueAtTime(400, now + 0.5);
+      const env = ctx.createGain();
+      env.gain.setValueAtTime(0.0001, now);
+      env.gain.exponentialRampToValueAtTime(0.09, now + 0.06);
+      env.gain.exponentialRampToValueAtTime(0.0001, now + 0.5);
+      noise.connect(band).connect(env).connect(this.out);
+      noise.start(now);
+      noise.stop(now + 0.6);
+    } catch {
+      /* decoration only */
+    }
+  }
+
   /** The deep, muffled "thump" under a heartbeat. */
   thump(strength = 1): void {
     const ctx = this.ready();

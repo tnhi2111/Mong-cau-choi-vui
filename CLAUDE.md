@@ -55,6 +55,19 @@ it for their wife. Live at **https://tnhi2111.github.io/Mong-chi-choi-vui/**.
 custom shaders must be built with `useShader()` (`src/components/3d/useShader.ts`) —
 never `<shaderMaterial uniforms={…} />`.
 
+## Gift room set (RoomSet.tsx) — birthday theme
+
+The owner said: **birthday theme for a lover, NOT Christmas** (an earlier Christmas tree /
+baubles pass was removed). `src/components/3d/RoomSet.tsx` dresses the gift room:
+wooden floor + round rug (shader, candle pools, heart glow, moonlight), round wall with an
+arched window onto a starry night, fairy-light garland, HAPPY BIRTHDAY bunting, candle
+clusters (flicker shared by flames and the light they throw), a two-tier birthday cake on a
+table (tap → candles blown out with smoke + `sound.blow()`, relit after ~4 s), round and
+heart balloons on ribbons (bob; tap → bounce + chime), and a secret glowing letter by the
+cake table (`birthdayConfig.room.secret`, placeholder text). All unlit custom shaders (no
+extra lights). The set is compiled with `gl.compileAsync` before it is shown, so
+entering the room stays ~130 ms (`qa:perf`).
+
 ## Where the last session stopped
 
 Last request from the owner:

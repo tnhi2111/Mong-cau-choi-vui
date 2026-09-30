@@ -76,6 +76,14 @@ export const birthdayConfig = {
     hint: 'Touch a light to open a memory',
     allOpenedHint: 'Every memory is open… something is waiting in the middle.',
     finalButton: 'Come closer',
+    /**
+     * A little letter hidden beside the birthday-cake table — only found by turning the room
+     * round. [ROOM_SECRET] Write something only she would understand.
+     */
+    secret: {
+      title: 'Em tìm thấy rồi ♥',
+      text: '[ROOM_SECRET] Anh biết thế nào em cũng tò mò ngó quanh bàn bánh kem mà.',
+    },
   },
 
   letter: {

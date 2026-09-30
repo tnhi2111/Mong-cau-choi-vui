@@ -9,6 +9,7 @@ import { CameraRig } from './CameraRig';
 import { getFloorTexture, getShadowTexture } from './glowTexture';
 import { usePointerOrbit } from '../../hooks/usePointerOrbit';
 import { hoverLight } from './sceneStore';
+import { RoomSet } from './RoomSet';
 
 interface Props {
   gifts: Gift[];
@@ -63,14 +64,10 @@ export function createFloorMaterial(): THREE.MeshPhysicalMaterial {
 function Floor({ rx, rz }: { rx: number; rz: number }) {
   // a unit ring, stretched to the (possibly oval) path the gifts stand on
   const ring = useMemo(() => new THREE.RingGeometry(1 - 0.012 / rx, 1 + 0.012 / rx, 160), [rx]);
-  const floor = useMemo(createFloorMaterial, []);
   useEffect(() => () => ring.dispose(), [ring]);
-  useEffect(() => () => floor.dispose(), [floor]);
+  // (the floor itself — wood, rug, candlelight — is drawn by RoomSet)
   return (
     <group position={[0, FLOOR_Y, 0]}>
-      <mesh rotation-x={-Math.PI / 2} renderOrder={-3} material={floor}>
-        <circleGeometry args={[9, 96]} />
-      </mesh>
       <mesh geometry={ring} rotation-x={-Math.PI / 2} position-y={0.004} scale={[rx, rz, 1]}>
         <meshBasicMaterial color="#f1c9d2" transparent opacity={0.12} depthWrite={false} toneMapped={false} />
       </mesh>
@@ -191,6 +188,15 @@ export function RoomWorld({
         orbit={orbit}
         orbitCamera
         fit={portrait ? (yaw) => 1 + 0.42 * Math.sin(yaw) ** 2 : undefined}
+      />
+      <RoomSet
+        floorY={FLOOR_Y}
+        rx={rx}
+        rz={rz}
+        heart={allOpened ? 1 : 0.35 + (opened.length / gifts.length) * 0.5}
+        reducedMotion={reducedMotion}
+        hoverFx={hoverFx}
+        portrait={portrait}
       />
       <Floor rx={rx} rz={rz} />
       <group position={[0, 0.3, 0]}>
