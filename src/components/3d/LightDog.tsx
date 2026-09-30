@@ -9,8 +9,17 @@ import type { OrbitInput } from '../../hooks/usePointerOrbit';
 import { sound } from '../../lib/audio';
 
 /** The waving arm, put down: turned about the shoulder, then slid in and down. */
-const ARM_DOWN_ANGLE = 2.45;
-const ARM_DOWN_SHIFT = [-0.12, -0.07];
+/*
+ * Putting the waving paw down to stand on, like the other front leg:
+ *  1. the arm swings down about the shoulder until it hangs straight (ARM_DOWN_ANGLE),
+ *  2. the paw folds at the wrist — turned over (Y, π) and tipped forward (X, −π/2) — so
+ *     its pads face the floor and its toes point forward (a raised paw shows its pads),
+ *  3. the leg settles so the paw rests on the floor beside the other (ARM_DOWN_SHIFT).
+ * Points past WRIST_ALONG along the raised arm belong to the paw.
+ */
+const ARM_DOWN_ANGLE = 2.595;
+const ARM_DOWN_SHIFT = [-0.055, -0.215];
+const WRIST_ALONG = 0.3;
 
 /*
  * The trick (seconds after she touches the puppy): it gets up on all fours (the light
@@ -217,7 +226,17 @@ const vertex = /* glsl */ `
     // once she has played with it, the paw comes down to the ground beside the other
     if (aAnim > 1.5 && aAnim < 2.5) {
       float wave = sin(t * 5.5) * smoothstep(-0.2, 0.4, sin(t * 0.9)) * (1.0 - uArmDown);
-      sit = rotZ(sit, vec3(${SHOULDER.join(', ')}), wave * 0.32 * uMotion - uArmDown * ${ARM_DOWN_ANGLE});
+      vec3 S = vec3(${SHOULDER.join(', ')});
+      vec3 D = normalize(vec3(0.17, 0.28, 0.07));   // the raised arm's direction
+      float along = dot(local - S, D);
+      float pawW = smoothstep(${(WRIST_ALONG - 0.02).toFixed(3)}, ${(WRIST_ALONG + 0.02).toFixed(3)}, along);
+      float ang = wave * 0.32 * uMotion - uArmDown * ${ARM_DOWN_ANGLE};
+      sit = rotZ(sit, S, ang);
+      // fold the paw at the wrist so it lands flat, pads down, toes forward
+      vec3 W = rotZ(S + D * ${WRIST_ALONG.toFixed(3)}, S, ang);
+      float f = uArmDown * pawW;
+      sit = rotY(sit, W, 3.14159 * f);
+      sit = rotX(sit, W, -1.5708 * f);
       sit.xy += vec2(${ARM_DOWN_SHIFT.join(', ')}) * uArmDown;
     }
     // the head thrown up for the bark
@@ -552,6 +571,8 @@ export function LightDog({ awake, visible, position, facing = 0, scale, density,
       const down = uniforms.uArmDown.value;
       arm.current.rotation.z = wave * 0.32 * uniforms.uMotion.value * (1 - down) - down * ARM_DOWN_ANGLE;
       arm.current.position.set(SHOULDER[0] + ARM_DOWN_SHIFT[0] * down, SHOULDER[1] + ARM_DOWN_SHIFT[1] * down, SHOULDER[2]);
+      // (its hidden body doesn't fold at the wrist — once the paw is down it steps aside)
+      arm.current.visible = down < 0.3;
     }
   });
 
