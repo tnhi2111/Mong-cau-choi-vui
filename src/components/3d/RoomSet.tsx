@@ -7,6 +7,7 @@ import { birthdayConfig } from '../../config/birthday';
 import { fill } from '../../lib/text';
 import { sound } from '../../lib/audio';
 import { getHeartGeometry } from './heartShape';
+import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 
 /*
  * The gift room's set: a small, warm room dressed for her birthday, at night.
@@ -35,11 +36,31 @@ const FLICK = /* glsl */ `
   }
 `;
 
+/**
+ * Her hand in the room: the pointer's ray, how present it is (fades out when it rests or
+ * leaves), and the "wind" it makes — its smoothed sideways speed. Written once a frame by
+ * RoomSet (mouse only), read by flames, balloons and dust.
+ */
+const hand = { o: new THREE.Vector3(), d: new THREE.Vector3(0, 0, -1), on: 0, wind: 0, speed: 0 };
+const closest = new THREE.Vector3();
+/** Distance from a point to her hand's ray, and the push direction (xz) away from it. */
+function fromHand(p: THREE.Vector3, away: THREE.Vector2): number {
+  closest.copy(p).sub(hand.o);
+  const along = Math.max(0, closest.dot(hand.d));
+  closest.copy(hand.o).addScaledVector(hand.d, along);
+  away.set(p.x - closest.x, p.z - closest.z);
+  const dist = p.distanceTo(closest);
+  if (away.lengthSq() > 1e-6) away.normalize();
+  return dist;
+}
+
 const WALL_R = 9;
 const WALL_H = 6.2;
 /** Direction of the window (the back of the room, as first seen). */
 const WINDOW_ANGLE = 0; // measured as atan(x, -z)
 const MAX_CANDLES = 12;
+/** The window in the distant city that lights up for her (window-local x, y). */
+const LOVE_WIN: [number, number] = [-0.535, -1.02];
 
 interface Candle {
   x: number;
@@ -70,6 +91,36 @@ function placeCandles(rx: number, rz: number): Candle[] {
   return out.slice(0, MAX_CANDLES);
 }
 
+/** One candle as a single mesh: a slightly uneven column, a drip down one side and a
+ *  wick (its uv.y is pushed above 1.5 so the wax shader draws it charred). */
+const candleCache = new Map<string, THREE.BufferGeometry>();
+function candleGeometry(c: Candle): THREE.BufferGeometry {
+  const key = `${c.r}:${c.h}:${c.seed}`;
+  const hit = candleCache.get(key);
+  if (hit) return hit;
+  const body = new THREE.CylinderGeometry(c.r * 0.97, c.r * 1.04, c.h, 20, 3);
+  // a melted top: the rim sags a little lower on one side
+  const pos = body.attributes.position as THREE.BufferAttribute;
+  for (let i = 0; i < pos.count; i++) {
+    const y = pos.getY(i);
+    if (y > c.h / 2 - 1e-4) pos.setY(i, y - (0.5 + 0.5 * Math.sin(Math.atan2(pos.getZ(i), pos.getX(i)) + c.seed)) * 0.012);
+  }
+  const side = c.seed * 2.3;
+  const dripLen = 0.03 + (c.seed % 1) * 0.05;
+  const drip = new THREE.CapsuleGeometry(c.r * 0.16, dripLen, 3, 8);
+  drip.translate(Math.cos(side) * c.r * 0.98, c.h / 2 - dripLen / 2 - 0.012, Math.sin(side) * c.r * 0.98);
+  const dripUv = drip.attributes.uv as THREE.BufferAttribute;
+  for (let i = 0; i < dripUv.count; i++) dripUv.setY(i, 0.92);
+  const wick = new THREE.CylinderGeometry(0.004, 0.005, 0.045, 5);
+  wick.translate(0, c.h / 2 + 0.02, 0);
+  const wUv = wick.attributes.uv as THREE.BufferAttribute;
+  for (let i = 0; i < wUv.count; i++) wUv.setY(i, 2 + wUv.getY(i));
+  const merged = mergeGeometries([body.toNonIndexed(), drip.toNonIndexed(), wick.toNonIndexed()]) ?? body;
+  merged.computeVertexNormals();
+  candleCache.set(key, merged);
+  return merged;
+}
+
 /* ── the floor: planks, rug, pools of light ───────────────────────────────── */
 const floorVertex = /* glsl */ `
   varying vec3 vWorld;
@@ -84,6 +135,7 @@ const floorFragment = /* glsl */ `
   uniform vec4 uCandles[${MAX_CANDLES}];
   uniform int uCount;
   uniform vec2 uRug;
+  uniform vec2 uCake;
   uniform float uHeart;
   uniform float uMotion;
   varying vec3 vWorld;
@@ -134,7 +186,16 @@ const floorFragment = /* glsl */ `
     // moonlight from the window: a cool, soft shaft on the floor toward the back
     vec2 m = p - vec2(0.0, -5.6);
     light += vec3(0.35, 0.45, 0.8) * 0.4 * exp(-(m.x * m.x) * 0.5 - (m.y * m.y) * 0.12);
-    vec3 col = base * light;
+    // contact shadows: the floor darkens right under each candle and the cake table
+    float ao = 1.0;
+    for (int i = 0; i < ${MAX_CANDLES}; i++) {
+      if (i >= uCount) break;
+      vec2 q = p - uCandles[i].xy;
+      ao *= 1.0 - 0.55 * exp(-dot(q, q) * 140.0);
+    }
+    vec2 qc = p - uCake;
+    ao *= 1.0 - 0.45 * exp(-dot(qc, qc) * 5.0);
+    vec3 col = base * light * ao;
     // out toward the wall the room falls into darkness
     col *= 1.0 - smoothstep(6.0, 9.0, r) * 0.7;
     gl_FragColor = vec4(col, 1.0);
@@ -156,6 +217,7 @@ const wallFragment = /* glsl */ `
   uniform int uCount;
   uniform float uFloorY;
   uniform float uMotion;
+  uniform float uLove;      // seconds since she touched the window (large = never)
   varying vec3 vWorld;
   ${FLICK}
   float hash2(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
@@ -184,6 +246,7 @@ const wallFragment = /* glsl */ `
       light += vec3(1.0, 0.58, 0.3) * flick(t + 20.0, c.z) * 0.55 * reach * reach * exp(-d * d * 0.35) * exp(-h * 0.55);
     }
     col *= light * 1.6;
+    col *= 0.5 + 0.5 * smoothstep(0.0, 0.45, h); // shadow where wall meets floor
 
     // the arched window
     float wx = s;
@@ -199,6 +262,50 @@ const wallFragment = /* glsl */ `
       sky += vec3(0.9, 0.92, 1.0) * smoothstep(0.24, 0.2, md) + vec3(0.3, 0.35, 0.6) * exp(-md * md * 3.0) * 0.6;
       vec2 sg = floor(vec2(wx, wy) * 22.0);
       sky += vec3(0.8) * step(0.985, hash2(sg)) * (0.5 + 0.5 * sin(t * 2.0 + hash2(sg) * 40.0));
+      // the city, far away: a row of dark buildings, their windows lit here and there,
+      // switching on and off now and then — people living their evenings
+      float col9 = floor((wx + 1.0) * 9.0);
+      float bh = 0.12 + hash2(vec2(col9, 3.0)) * 0.42;
+      if (abs(col9 - 4.0) < 0.5) bh = max(bh, 0.4);
+      float by = wy + 1.3;
+      if (by < bh) {
+        sky = mix(sky, vec3(0.018, 0.02, 0.045), 0.94);
+        vec2 wc = vec2((wx + 1.0) * 60.0, by * 55.0);
+        vec2 cell = floor(wc);
+        vec2 f = fract(wc);
+        float isWin = step(0.3, f.x) * step(f.x, 0.75) * step(0.3, f.y) * step(f.y, 0.8) * step(by, bh - 0.03);
+        float on = step(0.72, hash2(cell + floor(t * 0.05 + hash2(cell) * 7.0)));
+        sky += vec3(1.0, 0.72, 0.4) * isWin * on * 0.55;
+        // the secret window: the one she lights with a touch
+        vec2 home = vec2(${LOVE_WIN[0].toFixed(3)}, ${LOVE_WIN[1].toFixed(3)});
+        float mine = smoothstep(0.03, 0.0, max(abs(wx - home.x) - 0.012, abs(wy - home.y) - 0.012));
+        float lit = smoothstep(0.0, 0.6, uLove) * (1.0 - smoothstep(9.0, 12.0, uLove));
+        sky += vec3(1.0, 0.45, 0.6) * mine * lit * 1.6;
+      }
+      // …and from it a little heart of light rises into the sky, and becomes a star
+      {
+        vec2 home = vec2(${LOVE_WIN[0].toFixed(3)}, ${LOVE_WIN[1].toFixed(3)});
+        float rise = clamp((uLove - 0.8) / 3.2, 0.0, 1.0);
+        float e = rise * rise * (3.0 - 2.0 * rise);
+        vec2 hp = home + vec2(sin(e * 5.0) * 0.06, e * 1.9);
+        float size = 0.07 * (1.0 - e * 0.75);
+        vec2 q = (vec2(wx, wy) - hp) / size + vec2(0.0, 0.55);
+        q.x = abs(q.x);
+        float dh = q.y + q.x > 1.0
+          ? length(q - vec2(0.25, 0.75)) - 0.3536
+          : sqrt(min(dot(q - vec2(0.0, 1.0), q - vec2(0.0, 1.0)), dot(q - 0.5 * max(q.x + q.y, 0.0), q - 0.5 * max(q.x + q.y, 0.0)))) * sign(q.x - q.y);
+        float showH = step(0.8, uLove) * (1.0 - step(4.0, uLove));
+        sky += vec3(1.0, 0.5, 0.65) * smoothstep(0.08, -0.05, dh) * showH;
+        sky += vec3(1.0, 0.6, 0.72) * exp(-dot(vec2(wx, wy) - hp, vec2(wx, wy) - hp) * 90.0) * showH * 0.5;
+        // the new star stays for the rest of her visit
+        vec2 st = home + vec2(sin(5.0) * 0.06, 1.9);
+        float star = step(4.0, uLove) * step(uLove, 900.0);
+        float sd = length(vec2(wx, wy) - st);
+        float tw = 0.75 + 0.25 * sin(t * 3.0);
+        sky += vec3(1.0, 0.85, 0.9) * (smoothstep(0.018, 0.0, sd) + exp(-sd * sd * 900.0) * 0.6
+               + smoothstep(0.004, 0.0, abs(vec2(wx, wy).x - st.x)) * exp(-abs(wy - st.y) * 40.0) * 0.4
+               + smoothstep(0.004, 0.0, abs(wy - st.y)) * exp(-abs(wx - st.x) * 40.0) * 0.4) * star * tw;
+      }
       // mullions: a cross of glazing bars, and the city's faint glow low on the horizon
       float bars = smoothstep(0.025, 0.0, abs(wx)) + smoothstep(0.025, 0.0, abs(wy - 0.35));
       sky = mix(sky, vec3(0.2, 0.12, 0.08), clamp(bars, 0.0, 1.0));
@@ -219,18 +326,30 @@ const wallFragment = /* glsl */ `
 const waxVertex = /* glsl */ `
   varying float vY;
   varying vec3 vN;
+  varying float vTint;
   void main() {
     vY = uv.y;
     vN = normalize(normalMatrix * normal);
+    vec3 o = modelMatrix[3].xyz;
+    vTint = fract(sin(dot(o.xz, vec2(12.9898, 78.233))) * 43758.5453);
     gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
   }
 `;
 const waxFragment = /* glsl */ `
   varying float vY;
   varying vec3 vN;
+  varying float vTint;
   void main() {
-    // lit from its own flame above: translucent, warm at the top, cooler below
-    vec3 wax = mix(vec3(0.3, 0.2, 0.17), vec3(0.95, 0.72, 0.5), pow(vY, 4.0));
+    // the wick (uv.y > 1.5): charred, glowing orange at its tip
+    if (vY > 1.5) {
+      gl_FragColor = vec4(mix(vec3(0.05, 0.03, 0.02), vec3(1.0, 0.45, 0.15), smoothstep(2.6, 3.0, vY)), 1.0);
+      return;
+    }
+    // lit from its own flame above: translucent, warm at the top, cooler below;
+    // every candle a slightly different wax — ivory, blush, champagne
+    vec3 base = mix(mix(vec3(0.3, 0.2, 0.17), vec3(0.32, 0.18, 0.19), step(0.5, vTint)), vec3(0.3, 0.23, 0.16), step(0.8, vTint));
+    vec3 top = mix(mix(vec3(0.95, 0.72, 0.5), vec3(0.98, 0.66, 0.6), step(0.5, vTint)), vec3(0.95, 0.8, 0.5), step(0.8, vTint));
+    vec3 wax = mix(base, top, pow(clamp(vY, 0.0, 1.0), 4.0));
     float rim = pow(1.0 - abs(vN.z), 2.0) * 0.25;
     gl_FragColor = vec4(wax + rim * vec3(1.0, 0.6, 0.35), 1.0);
   }
@@ -239,13 +358,24 @@ const flameVertex = /* glsl */ `
   uniform float uTime;
   uniform float uPixelRatio;
   uniform float uMotion;
+  uniform vec3 uHandO;
+  uniform vec3 uHandD;
+  uniform float uHandOn;
+  uniform float uWind;
   attribute float aSeed;
   varying float vF;
   varying float vSeed;
+  varying float vLean;
   ${FLICK}
   void main() {
     vF = flick(uTime * uMotion + 20.0, aSeed);
     vSeed = aSeed;
+    // her hand passing close by drags the air: the flame leans with it and flares a little
+    vec3 wp = (modelMatrix * vec4(position, 1.0)).xyz;
+    float d = length(cross(wp - uHandO, uHandD));
+    float near = uHandOn * exp(-d * d * 2.5);
+    vLean = near * clamp(uWind, -1.5, 1.5);
+    vF *= 1.0 + near * 0.18 + abs(vLean) * 0.15;
     vec4 mv = modelViewMatrix * vec4(position, 1.0);
     gl_Position = projectionMatrix * mv;
     gl_PointSize = 300.0 * uPixelRatio / -mv.z;
@@ -257,9 +387,12 @@ const flameFragment = /* glsl */ `
   uniform float uLit;
   varying float vF;
   varying float vSeed;
+  varying float vLean;
   void main() {
     vec2 c = gl_PointCoord - vec2(0.5, 0.62);
     c.y = -c.y;
+    // leaning in the wind of her hand: the tip goes further than the base
+    c.x -= vLean * 0.35 * max(c.y + 0.07, 0.0);
     // the flame sways a little from side to side
     c.x += sin(uTime * uMotion * 5.0 + vSeed * 9.0) * 0.012 * (c.y + 0.1) * 6.0;
     // a teardrop: round at the bottom, drawn up to a point
@@ -362,6 +495,8 @@ function Balloon({
   const ribbon = useMemo(() => new THREE.MeshBasicMaterial({ color: '#e8c9b0', transparent: true, opacity: 0.35, depthWrite: false }), []);
   const knot = useMemo(() => new THREE.MeshBasicMaterial({ color }), [color]);
   const heartGeo = useMemo(() => (heart ? getHeartGeometry('low') : null), [heart]);
+  const head = useMemo(() => new THREE.Vector3(), []);
+  const away = useMemo(() => new THREE.Vector2(), []);
   useEffect(
     () => () => {
       ribbon.dispose();
@@ -379,6 +514,17 @@ function Balloon({
     const breeze = (Math.sin(t * 0.6 + seed) * 0.006 + Math.sin(t * 1.7 + seed * 2) * 0.003) * motion;
     p.vx += (-k * Math.sin(p.ax) - p.vx * 0.9) * dt + breeze * dt * 10;
     p.vz += (-k * Math.sin(p.az) - p.vz * 0.9) * dt + breeze * dt * 6;
+    // the air of her hand sweeping past nudges it away (light, so it drifts, then settles)
+    if (hand.on > 0.01) {
+      head.set(at[0], at[1] + length + 0.27, at[2]);
+      const d = fromHand(head, away);
+      if (d < 0.9) {
+        const f = (1 - d / 0.9) ** 2 * Math.min(hand.speed, 4) * hand.on * dt * 1.6;
+        p.vx += away.y * f;
+        p.vz -= away.x * f;
+        p.glow = Math.min(1, p.glow + f * 0.5);
+      }
+    }
     p.ax += p.vx * dt;
     p.az += p.vz * dt;
     p.glow *= Math.exp(-dt * 2.5);
@@ -710,22 +856,33 @@ function Bunting({ floorY }: { floorY: number }) {
     const pos: number[] = [];
     const uv: number[] = [];
     const r = WALL_R - 0.15;
-    const span = 1.15; // radians either side of the window
-    const w = (2 * span) / n;
-    const sag = (a: number) => floorY + 1.95 - Math.cos((a / span) * (Math.PI / 2)) * 0.3;
-    letters.forEach((_, i) => {
-      const a0 = -span + i * w + w * 0.08;
-      const a1 = -span + (i + 1) * w - w * 0.08;
-      const y0 = sag(a0);
-      const y1 = sag(a1);
-      const h = 0.42;
-      const p = (a: number, y: number) => [Math.sin(a) * r, y, -Math.cos(a) * r];
-      const [tl, tr, br, bl] = [p(a0, y0), p(a1, y1), p(a1, y1 - h), p(a0, y0 - h)];
-      pos.push(...tl, ...bl, ...tr, ...tr, ...bl, ...br);
-      const u0 = i / n;
-      const u1 = (i + 1) / n;
-      uv.push(u0, 1, u0, 0, u1, 1, u1, 1, u0, 0, u1, 0);
-    });
+    // two runs hung from the corners of the window frame out along the wall — HAPPY on the
+    // left, BIRTHDAY on the right — so the window (and the city beyond it) stays clear
+    const frame = 0.14; // radians: the window frame's half-width at this radius
+    const runs = [
+      { from: 0, to: 5, a0: -1.3, a1: -frame },
+      { from: 6, to: 14, a0: frame, a1: 1.5 },
+    ];
+    const h = 0.4;
+    const p = (a: number, y: number) => [Math.sin(a) * r, y, -Math.cos(a) * r];
+    for (const run of runs) {
+      const count = run.to - run.from;
+      const w = (run.a1 - run.a0) / count;
+      // the string sags between its two hooks
+      const sag = (a: number) => floorY + 2.05 - Math.sin(((a - run.a0) / (run.a1 - run.a0)) * Math.PI) * 0.28;
+      for (let k = 0; k < count; k++) {
+        const i = run.from + k;
+        const a0 = run.a0 + k * w + w * 0.08;
+        const a1 = run.a0 + (k + 1) * w - w * 0.08;
+        const y0 = sag(a0);
+        const y1 = sag(a1);
+        const [tl, tr, br, bl] = [p(a0, y0), p(a1, y1), p(a1, y1 - h), p(a0, y0 - h)];
+        pos.push(...tl, ...bl, ...tr, ...tr, ...bl, ...br);
+        const u0 = i / n;
+        const u1 = (i + 1) / n;
+        uv.push(u0, 1, u0, 0, u1, 1, u1, 1, u0, 0, u1, 0);
+      }
+    }
     const geom = new THREE.BufferGeometry();
     geom.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
     geom.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
@@ -742,6 +899,106 @@ function Bunting({ floorY }: { floorY: number }) {
     [geo, mat],
   );
   return <mesh geometry={geo} material={mat} />;
+}
+
+/* ── dust: only seen where it drifts through light ───────────────────────── */
+const dustVertex = /* glsl */ `
+  uniform float uTime;
+  uniform float uPixelRatio;
+  uniform float uMotion;
+  uniform vec4 uCandles[${MAX_CANDLES}];
+  uniform int uCount;
+  uniform float uFloorY;
+  uniform vec3 uHandO;
+  uniform vec3 uHandD;
+  uniform float uHandOn;
+  attribute float aSeed;
+  varying float vA;
+  varying vec3 vCol;
+  void main() {
+    float t = uTime * uMotion;
+    // a slow, lazy drift — each mote on its own path, sinking and lifting on warm air
+    vec3 p = position + vec3(
+      sin(t * 0.13 + aSeed * 40.0) * 0.35 + sin(t * 0.31 + aSeed * 11.0) * 0.1,
+      sin(t * 0.09 + aSeed * 23.0) * 0.25,
+      cos(t * 0.11 + aSeed * 31.0) * 0.35);
+    // her hand stirs the air: motes near it are pushed aside
+    vec3 rel = p - uHandO;
+    vec3 perp = rel - dot(rel, uHandD) * uHandD;
+    float d = length(perp);
+    p += normalize(perp + 1e-4) * uHandOn * 0.25 * exp(-d * d * 6.0);
+    // lit only near a flame (warm) or in the moonlight by the window (cool)
+    float warm = 0.0;
+    for (int i = 0; i < ${MAX_CANDLES}; i++) {
+      if (i >= uCount) break;
+      vec4 c = uCandles[i];
+      vec3 f = vec3(c.x, uFloorY + c.w + 0.1, c.y);
+      vec3 q = p - f;
+      warm += exp(-dot(q, q) * 2.2);
+    }
+    vec2 m = vec2(p.x, p.z + 5.6);
+    float cool = exp(-m.x * m.x * 0.9 - m.y * m.y * 0.25) * smoothstep(uFloorY, uFloorY + 1.0, p.y);
+    vec4 mv = modelViewMatrix * vec4(p, 1.0);
+    gl_Position = projectionMatrix * mv;
+    // catching the light as it turns
+    float glint = 0.55 + 0.45 * sin(uTime * (1.5 + aSeed * 2.0) + aSeed * 60.0);
+    vA = clamp(warm * 1.3 + cool * 0.7, 0.0, 1.0) * glint;
+    vCol = mix(vec3(0.7, 0.8, 1.0), vec3(1.0, 0.8, 0.55), clamp(warm * 3.0, 0.0, 1.0));
+    gl_PointSize = (1.2 + aSeed * 1.4) * uPixelRatio * (14.0 / -mv.z);
+  }
+`;
+const dustFragment = /* glsl */ `
+  varying float vA;
+  varying vec3 vCol;
+  void main() {
+    float d = length(gl_PointCoord - 0.5);
+    gl_FragColor = vec4(vCol, smoothstep(0.5, 0.0, d) * vA * 0.8);
+  }
+`;
+
+function Dust({ candles, candleVec, floorY, count, motion }: { candles: Candle[]; candleVec: THREE.Vector4[]; floorY: number; count: number; motion: number }) {
+  const geo = useMemo(() => {
+    const pos: number[] = [];
+    const seed: number[] = [];
+    for (let i = 0; i < count; i++) {
+      // most around the candle clusters, some in the moonlight by the window
+      if (i % 4 === 3) {
+        pos.push((Math.random() - 0.5) * 2.2, floorY + 0.3 + Math.random() * 2.6, -5.6 + (Math.random() - 0.5) * 3);
+      } else {
+        const c = candles[i % candles.length];
+        const a = Math.random() * Math.PI * 2;
+        const r = Math.sqrt(Math.random()) * 0.9;
+        pos.push(c.x + Math.cos(a) * r, floorY + 0.15 + Math.random() * 1.3, c.z + Math.sin(a) * r);
+      }
+      seed.push(Math.random());
+    }
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+    g.setAttribute('aSeed', new THREE.Float32BufferAttribute(seed, 1));
+    return g;
+  }, [candles, floorY, count]);
+  useEffect(() => () => geo.dispose(), [geo]);
+  const u = useMemo(
+    () => ({
+      uTime: { value: 0 },
+      uPixelRatio: { value: Math.min(window.devicePixelRatio, 2) },
+      uMotion: { value: 1 },
+      uCandles: { value: candleVec },
+      uCount: { value: candles.length },
+      uFloorY: { value: floorY },
+      uHandO: { value: hand.o },
+      uHandD: { value: hand.d },
+      uHandOn: { value: 0 },
+    }),
+    [candleVec, candles.length, floorY],
+  );
+  const mat = useShader(dustVertex, dustFragment, u);
+  useFrame((state) => {
+    u.uTime.value = state.clock.elapsedTime;
+    u.uMotion.value = motion;
+    u.uHandOn.value = hand.on;
+  });
+  return <points geometry={geo} material={mat} frustumCulled={false} />;
 }
 
 /** A garland of fairy lights sagging between hooks along the wall. */
@@ -813,13 +1070,14 @@ export function RoomSet({ floorY, rx, rz, heart, reducedMotion, hoverFx, portrai
       uCandles: { value: candleVec },
       uCount: { value: candles.length },
       uRug: { value: new THREE.Vector2(rx + 0.95, rz + 0.95) },
+      uCake: { value: new THREE.Vector2(9, 9) },
       uHeart: { value: heart },
       uMotion: { value: motion },
     }),
     [candleVec, candles.length, rx, rz], // eslint-disable-line react-hooks/exhaustive-deps
   );
   const wallU = useMemo(
-    () => ({ uTime: { value: 0 }, uCandles: { value: candleVec }, uCount: { value: candles.length }, uFloorY: { value: floorY }, uMotion: { value: motion } }),
+    () => ({ uTime: { value: 0 }, uCandles: { value: candleVec }, uCount: { value: candles.length }, uFloorY: { value: floorY }, uMotion: { value: motion }, uLove: { value: 999 } }),
     [candleVec, candles.length, floorY], // eslint-disable-line react-hooks/exhaustive-deps
   );
   const floorMat = useShader(floorVertex, floorFragment, floorU, { opaque: true });
@@ -833,8 +1091,50 @@ export function RoomSet({ floorY, rx, rz, heart, reducedMotion, hoverFx, portrai
     return g;
   }, [candles, floorY]);
   useEffect(() => () => flames.dispose(), [flames]);
-  const flameU = useMemo(() => ({ uTime: { value: 0 }, uPixelRatio: { value: Math.min(window.devicePixelRatio, 2) }, uMotion: { value: 1 }, uLit: { value: 1 } }), []);
+  const flameU = useMemo(
+    () => ({
+      uTime: { value: 0 },
+      uPixelRatio: { value: Math.min(window.devicePixelRatio, 2) },
+      uMotion: { value: 1 },
+      uLit: { value: 1 },
+      uHandO: { value: hand.o },
+      uHandD: { value: hand.d },
+      uHandOn: { value: 0 },
+      uWind: { value: 0 },
+    }),
+    [],
+  );
   const flameMat = useShader(flameVertex, flameFragment, flameU);
+
+  // her hand: where the pointer points into the room, and the air it moves
+  const ray = useMemo(() => new THREE.Raycaster(), []);
+  const lastPointer = useRef({ x: 0, y: 0, moved: -10 });
+  useFrame((state, rawDt) => {
+    const dt = Math.min(rawDt, 0.05);
+    if (!hoverFx || reducedMotion) {
+      hand.on = 0;
+      hand.wind = 0;
+      hand.speed = 0;
+      return;
+    }
+    const pt = state.pointer;
+    const lp = lastPointer.current;
+    const dx = pt.x - lp.x;
+    const dy = pt.y - lp.y;
+    if (dx !== 0 || dy !== 0) lp.moved = state.clock.elapsedTime;
+    lp.x = pt.x;
+    lp.y = pt.y;
+    ray.setFromCamera(pt, state.camera);
+    hand.o.copy(ray.ray.origin);
+    hand.d.copy(ray.ray.direction);
+    const k = 1 - Math.exp(-dt * 6);
+    const moving = state.clock.elapsedTime - lp.moved < 0.6 ? 1 : 0;
+    hand.on += (moving - hand.on) * (1 - Math.exp(-dt * (moving ? 8 : 1.5)));
+    hand.wind += ((dx / Math.max(dt, 1e-3)) * 0.6 - hand.wind) * k;
+    hand.speed += (Math.hypot(dx, dy) / Math.max(dt, 1e-3) - hand.speed) * k;
+    flameU.uHandOn.value = hand.on;
+    flameU.uWind.value = hand.wind;
+  });
 
   useFrame((state) => {
     const t = state.clock.elapsedTime;
@@ -865,6 +1165,29 @@ export function RoomSet({ floorY, rx, rz, heart, reducedMotion, hoverFx, portrai
   };
 
   const cakeAt: [number, number, number] = portrait ? [-1.35, floorY, -4.6] : [-4.6, floorY, -4.4];
+  useEffect(() => {
+    floorU.uCake.value.set(cakeAt[0], cakeAt[2]);
+  }, [cakeAt[0], cakeAt[2], floorU]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const loveAt = useRef<number | null>(null);
+  const clockNow = useRef(0);
+  useFrame((state) => {
+    clockNow.current = state.clock.elapsedTime;
+    wallU.uLove.value = loveAt.current === null ? 999 : state.clock.elapsedTime - loveAt.current;
+  });
+  // QA hook (?debug): light the far window without having to aim at it
+  useEffect(() => {
+    if (!new URLSearchParams(location.search).has('debug')) return;
+    (window as unknown as { __roomLove?: () => void }).__roomLove = () => (loveAt.current = clockNow.current);
+  }, []);
+  const touchWindow = (e: ThreeEvent<MouseEvent>) => {
+    e.stopPropagation();
+    if (e.delta > 8) return;
+    if (loveAt.current !== null && clockNow.current - loveAt.current < 5) return;
+    // (once the star is there, a second touch lights the window again and sends another)
+    loveAt.current = clockNow.current;
+    [4, 5, 7].forEach((pch, i) => setTimeout(() => sound.chime(pch, 0.035), 700 + i * 160));
+  };
 
   // The room's own shaders (floor, wall, wax, flames, cake, balloons…) are compiled in the
   // background first — the dark veil still covers the scene — and only then shown, so
@@ -898,11 +1221,29 @@ export function RoomSet({ floorY, rx, rz, heart, reducedMotion, hoverFx, portrai
         <cylinderGeometry args={[WALL_R, WALL_R, WALL_H, 96, 1, true]} />
       </mesh>
       {candles.map((c, i) => (
-        <mesh key={i} position={[c.x, floorY + c.h / 2, c.z]} material={waxMat}>
-          <cylinderGeometry args={[c.r, c.r * 1.04, c.h, 18]} />
-        </mesh>
+        <mesh
+          key={i}
+          position={[c.x, floorY + c.h / 2, c.z]}
+          rotation={[Math.sin(c.seed * 3.1) * 0.035, 0, Math.cos(c.seed * 1.7) * 0.035]}
+          geometry={candleGeometry(c)}
+          material={waxMat}
+        />
       ))}
       <points geometry={flames} material={flameMat} frustumCulled={false} />
+      <Dust candles={candles} candleVec={candleVec} floorY={floorY} count={portrait ? 90 : 170} motion={motion} />
+      {/* the window pane, as something to touch */}
+      <mesh
+        position={[0, floorY + 2.5 + 0.4, -WALL_R + 0.12]}
+        onClick={touchWindow}
+        onPointerOver={(e) => {
+          e.stopPropagation();
+          document.body.style.cursor = 'pointer';
+        }}
+        onPointerOut={() => (document.body.style.cursor = '')}
+      >
+        <planeGeometry args={[1.9, 3.3]} />
+        <meshBasicMaterial transparent opacity={0} depthWrite={false} colorWrite={false} />
+      </mesh>
       <Garland floorY={floorY} />
       <Bunting floorY={floorY} />
       <Cake at={cakeAt} motion={motion} secretFound={secretFound} onSecret={findSecret} />

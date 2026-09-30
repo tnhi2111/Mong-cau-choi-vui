@@ -68,6 +68,17 @@ cake table (`birthdayConfig.room.secret`, placeholder text). All unlit custom sh
 extra lights). The set is compiled with `gl.compileAsync` before it is shown, so
 entering the room stays ~130 ms (`qa:perf`).
 
+Living details (next pass): a shared `hand` (pointer ray + "wind" of its sideways speed,
+mouse only) — flames lean with it and flare, balloons are pushed aside by it, dust motes
+(`Dust`, only visible where they drift through candle/moon light) part around it. Candles
+are one merged mesh each (`candleGeometry`: sagging melted rim, a drip, a charred wick;
+wax tint varies per candle, slight lean); contact shadows under candles/cake table and at
+the foot of the wall. Beyond the window: a distant city whose windows switch on and off;
+**secret** — touching the window lights one far window pink, a little heart of light rises
+from it and becomes a new star (`uLove`, `LOVE_WIN`; `?debug` → `window.__roomLove()`).
+Bunting hangs in two runs from the window frame's corners so the city stays visible.
+The owner does NOT want Christmas — no snow/tree/gnomes even if a prompt suggests them.
+
 ## Where the last session stopped
 
 Last request from the owner:
