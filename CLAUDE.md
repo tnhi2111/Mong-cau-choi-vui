@@ -79,6 +79,21 @@ from it and becomes a new star (`uLove`, `LOVE_WIN`; `?debug` → `window.__room
 Bunting hangs in two runs from the window frame's corners so the city stays visible.
 The owner does NOT want Christmas — no snow/tree/gnomes even if a prompt suggests them.
 
+## The letter gift = a golden puppy carrying the letter (LetterDog)
+
+Gift 05 (`shape: 'envelope'`) is no longer a floating envelope: `LetterDog.tsx` renders a
+SOLID, lit spaniel-like golden puppy standing on the room floor with the letter held
+crosswise in its mouth (red satin collar bow + gold bell). Shape: `letterDogModel.ts` — an
+SDF (ellipsoids + round cones, smooth union) meshed by a small surface-nets mesher into
+three meshes (body / head / tail, so head and tail animate), normals from the field
+gradient, vertex colours with fur streaks. Sculpting (~0.7 s) runs in a **web worker**
+(`letterDog.worker.ts`, `letterDogGeometry.ts` → `loadLetterDog()`), started by Prewarm
+during the welcome; materials (`createLetterDogMaterials`) are pre-compiled too. Gift3D
+grounds it (no float/lift/tilt; `isDog`), it trots to a floor-level showcase when opened,
+lifts its chin and the letter's flap opens. Idle: breathing, weight shift, head wander/
+tilt, irregular blinks, tail in bursts; her hand → head turns toward it, tilts, wags.
+The opening camera never backs out through the wall (`back` clamp in RoomWorld).
+
 ## Where the last session stopped
 
 Last request from the owner:

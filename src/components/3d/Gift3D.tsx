@@ -9,6 +9,7 @@ import { getHeartGeometry } from './heartShape';
 import { getPaperTexture, getShadowTexture } from './glowTexture';
 import { Spring } from './CameraRig';
 import { sound } from '../../lib/audio';
+import { LetterDog } from './LetterDog';
 
 interface Props {
   gift: Gift;
@@ -61,17 +62,6 @@ function starGeometry(): THREE.ExtrudeGeometry {
   return g;
 }
 
-function flapGeometry(): THREE.ExtrudeGeometry {
-  // a thin card rather than a flat face, so it looks right from both sides
-  // without a double-sided material (which would need a shader of its own)
-  const s = new THREE.Shape();
-  s.moveTo(-0.4, 0);
-  s.lineTo(0.4, 0);
-  s.lineTo(0, -0.3);
-  s.closePath();
-  return new THREE.ExtrudeGeometry(s, { depth: 0.006, bevelEnabled: false });
-}
-
 /**
  * Each object gets a material that fits what it is — wrapping paper and satin,
  * glass, polished metal, card — so the room reads as real things, not icons.
@@ -91,7 +81,7 @@ export type GiftMaterials = {
  * opaque program instead of six — the difference between a smooth entrance
  * and a multi-second freeze on Windows.
  */
-function surface(p: {
+export function surface(p: {
   color: THREE.ColorRepresentation;
   roughness: number;
   metalness?: number;
@@ -199,20 +189,32 @@ function useGiftMaterials(gift: Gift, glass: boolean): GiftMaterials {
   return mats;
 }
 
-function GiftBody({ gift, progress, hover, glass }: { gift: Gift; progress: Progress; hover: Progress; glass: boolean }) {
+function GiftBody({
+  gift,
+  progress,
+  hover,
+  glass,
+  aim,
+  reducedMotion,
+}: {
+  gift: Gift;
+  progress: Progress;
+  hover: Progress;
+  glass: boolean;
+  aim: { current: { x: number; y: number } };
+  reducedMotion: boolean;
+}) {
   const lid = useRef<THREE.Group>(null);
   const core = useRef<THREE.Mesh>(null);
   const light = useRef<THREE.Sprite>(null);
   const mats = useGiftMaterials(gift, glass);
   const star = useMemo(() => (gift.shape === 'star' ? starGeometry() : null), [gift.shape]);
-  const flap = useMemo(() => (gift.shape === 'envelope' ? flapGeometry() : null), [gift.shape]);
 
   useEffect(
     () => () => {
       star?.dispose();
-      flap?.dispose();
     },
-    [star, flap],
+    [star],
   );
 
   useFrame((state) => {
@@ -312,21 +314,8 @@ function GiftBody({ gift, progress, hover, glass }: { gift: Gift; progress: Prog
         </group>
       );
     case 'envelope':
-      return (
-        <group>
-          <mesh material={mats.main}>
-            <boxGeometry args={[0.8, 0.52, 0.035]} />
-          </mesh>
-          <mesh ref={core} position={[0, 0.05, 0.02]}>
-            <planeGeometry args={[0.66, 0.36]} />
-            <meshBasicMaterial color="#fff6ec" transparent opacity={0.4} toneMapped={false} />
-          </mesh>
-          <group ref={lid} position={[0, 0.26, 0.02]}>
-            <mesh geometry={flap!} material={mats.flap} />
-            <mesh geometry={getHeartGeometry('low')} position={[0, -0.25, 0.025]} scale={[0.07, 0.07, 0.035]} material={mats.seal} />
-          </group>
-        </group>
-      );
+      // the letter isn't a floating envelope any more: a golden puppy brings it, in its mouth
+      return <LetterDog progress={progress} hover={hover} aim={aim} mats={mats} reducedMotion={reducedMotion} />;
   }
 }
 
@@ -431,6 +420,7 @@ export function Gift3D({
   const homeV = useMemo(() => new THREE.Vector3(...home), [home]);
   const showV = useMemo(() => new THREE.Vector3(...showcase), [showcase]);
   const active = (hovered || focused) && !disabled;
+  const isDog = gift.shape === 'envelope';
   // at rest, gifts turn part-way toward the room's front so thin ones (the envelope) never show only an edge
   // (wrapped to −π…π so turning between the two always takes the short way)
   const face = useMemo(() => Math.atan2(Math.sin(facing), Math.cos(facing)), [facing]);
@@ -465,33 +455,34 @@ export function Gift3D({
     const h = hover.current;
 
     // floating at home; lifts a little when hovered; rises toward the camera while opening
-    const bob = reducedMotion ? 0 : Math.sin(t * 0.9 + phase) * 0.06;
-    const up = lift.step(active ? 0.16 : 0, 9, dt);
-    tmp.copy(homeV).setY(homeV.y + bob + up).lerp(showV, e);
+    // (the letter-carrying puppy stands on the floor: it doesn't float or lift)
+    const bob = reducedMotion || isDog ? 0 : Math.sin(t * 0.9 + phase) * 0.06;
+    const up = lift.step(active && !isDog ? 0.16 : 0, 9, dt);
+    tmp.copy(homeV).setY((isDog ? floorY : homeV.y) + bob + up).lerp(showV, e);
     r.position.copy(tmp);
     // a gentle squash-and-rise "breath" when the opening begins
     const kick = Math.sin(Math.min(1, o * 3) * Math.PI) * 0.06 * (reducedMotion ? 0 : 1);
     r.scale.setScalar(size * (1 + kick + e * 0.12));
 
     // idle sway; turns toward her hand when hovered; squares up to the camera while opening
-    const idleY = reducedMotion ? 0 : Math.sin(t * 0.45 + phase) * 0.35;
+    const idleY = reducedMotion ? 0 : Math.sin(t * 0.45 + phase) * (isDog ? 0.12 : 0.35);
     s.rotation.y = THREE.MathUtils.lerp(s.rotation.y, opening ? face : restFacing + idleY * (1 - h), Math.min(1, dt * 3));
-    s.rotation.x = tiltX.step(opening ? 0.18 * (1 - e) + 0.12 : 0.1 + aim.current.y * 0.22 * h, 7, dt);
-    s.rotation.z = tiltZ.step(opening ? 0 : -aim.current.x * 0.22 * h, 7, dt);
+    s.rotation.x = isDog ? 0 : tiltX.step(opening ? 0.18 * (1 - e) + 0.12 : 0.1 + aim.current.y * 0.22 * h, 7, dt);
+    s.rotation.z = isDog ? 0 : tiltZ.step(opening ? 0 : -aim.current.x * 0.22 * h, 7, dt);
 
     if (glow.current) {
       const m = glow.current.material as THREE.SpriteMaterial;
       const base = opened ? 0.08 : 0.14;
-      const target = base + h * 0.22 + THREE.MathUtils.smoothstep(o, 0.45, 1) * 1.1;
+      const target = base + h * 0.22 + THREE.MathUtils.smoothstep(o, 0.45, 1) * (isDog ? 0.3 : 1.1);
       m.opacity += (target - m.opacity) * Math.min(1, dt * 5);
       glow.current.scale.setScalar(1.5 + h * 0.4 + THREE.MathUtils.smoothstep(o, 0.5, 1) * 4);
     }
 
     // contact shadow: tighter and darker close to the floor, soft and faint as it rises
     if (shadow.current) {
-      const height = Math.max(0, r.position.y - floorY);
+      const height = isDog ? 0 : Math.max(0, r.position.y - floorY);
       shadow.current.position.set(r.position.x, floorY + 0.005, r.position.z);
-      shadow.current.scale.setScalar(size * (0.9 + height * 0.35));
+      shadow.current.scale.setScalar(size * (isDog ? 0.85 : 0.9 + height * 0.35));
       (shadow.current.material as THREE.MeshBasicMaterial).opacity = (0.7 / (1 + height * 0.9)) * (1 - e * 0.6);
     }
 
@@ -530,7 +521,7 @@ export function Gift3D({
         <meshBasicMaterial map={getShadowTexture()} color="#000000" transparent opacity={0.6} depthWrite={false} />
       </mesh>
       <group ref={root} position={home}>
-        <Glow ref={glow} color={gift.tint} size={1.5} opacity={0.14} />
+        <Glow ref={glow} color={gift.tint} size={1.5} opacity={0.14} position={isDog ? [0, 0.55, 0] : undefined} />
         <group
           ref={spin}
           onClick={click}
@@ -552,17 +543,17 @@ export function Gift3D({
             sound.hoverEnd(gift.id);
           }}
         >
-          <GiftBody gift={gift} progress={progress} hover={hover} glass={glass} />
+          <GiftBody gift={gift} progress={progress} hover={hover} glass={glass} aim={aim} reducedMotion={reducedMotion} />
           {/* generous invisible hit area — easier to tap on phones; it reaches down over the
               gift's label too, so tapping the name opens it as well */}
-          <mesh position={[0, -0.14, 0]} scale={[1, 1.35, 1]}>
+          <mesh position={isDog ? [0, 0.52, 0.02] : [0, -0.14, 0]} scale={isDog ? [0.62, 0.95, 0.95] : [1, 1.35, 1]}>
             <sphereGeometry args={[0.6, 12, 10]} />
             <meshBasicMaterial transparent opacity={0} depthWrite={false} colorWrite={false} />
           </mesh>
         </group>
         {hoverFx && !reducedMotion && <HoverSparkles on={hover} />}
         {!opening && (
-          <Html center position={[0, -0.7, 0]} style={{ pointerEvents: 'none' }} zIndexRange={[5, 0]}>
+          <Html center position={[0, isDog ? -0.34 : -0.7, 0]} style={{ pointerEvents: 'none' }} zIndexRange={[5, 0]}>
             <div ref={label} className={`gift-label${active ? ' is-active' : ''}${opened ? ' is-opened' : ''}${quiet ? ' is-quiet' : ''}`}>
               <span className="gift-label__num">{opened ? '✓' : number}</span>
               <span className="gift-label__title">{gift.title}</span>

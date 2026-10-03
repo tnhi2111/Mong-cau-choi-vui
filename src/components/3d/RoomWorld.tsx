@@ -156,11 +156,13 @@ export function RoomWorld({
 
   const showcase = useMemo(
     () =>
-      ring.map(({ pos, angle }) => {
+      ring.map(({ pos, angle }, i) => {
         const out = portrait ? 0.9 : 1.1;
-        return [pos[0] + Math.sin(angle) * out, 0.45, pos[2] + Math.cos(angle) * out] as [number, number, number];
+        // the letter-carrying puppy walks up to her on the floor; the gifts rise into the air
+        const y = gifts[i]?.shape === 'envelope' ? FLOOR_Y : 0.45;
+        return [pos[0] + Math.sin(angle) * out, y, pos[2] + Math.cos(angle) * out] as [number, number, number];
       }),
-    [ring, portrait],
+    [ring, portrait, gifts],
   );
 
   // Framing: a raised three-quarter view that shows the floor and the whole ring.
@@ -172,9 +174,13 @@ export function RoomWorld({
   if (opening && openIndex >= 0) {
     // frame the rising gift from straight in front, closer. The offset is given
     // un-rotated: the orbit yaw (steered to the gift's angle) swings it round.
-    const [sx, sy, sz] = showcase[openIndex];
+    const [sx, sy0, sz] = showcase[openIndex];
+    // (look at the puppy's head, not its paws)
+    const sy = gifts[openIndex]?.shape === 'envelope' ? sy0 + 0.8 : sy0;
     camLook = [sx, sy, sz];
-    camPos = [sx, sy + 1.0, sz + (portrait ? 5.2 : 4.5)];
+    // step back to frame it — but never through the wall of the room behind her
+    const back = Math.min(portrait ? 5.2 : 4.5, 8.1 - Math.hypot(sx, sz));
+    camPos = [sx, sy + (gifts[openIndex]?.shape === 'envelope' ? 0.55 : 1.0), sz + back];
   }
 
   return (

@@ -6,6 +6,8 @@ import { createGiftMaterials } from './Gift3D';
 import { createFloorMaterial } from './RoomWorld';
 import { createSwarmMaterial } from './FinalWorld';
 import { createHeartMaterial } from './heartMaterial';
+import { createLetterDogMaterials } from './LetterDog';
+import { loadLetterDog } from './letterDogGeometry';
 
 /*
  * Compiling a physically based shader takes a few hundred milliseconds on some
@@ -46,6 +48,9 @@ export function Prewarm({ gifts, glass, solidHeart, delay = 500 }: { gifts: Gift
     };
     for (const g of gifts) Object.values(createGiftMaterials(g, glass)).forEach((m) => m && add(m));
     add(createFloorMaterial());
+    // the letter-carrying puppy: sculpt it in a worker now, and compile its fur and face
+    void loadLetterDog();
+    Object.values(createLetterDogMaterials()).forEach(add);
     if (solidHeart) add(createHeartMaterial(glass).material);
     const swarm = createSwarmMaterial();
     keepAlive.push(swarm);
